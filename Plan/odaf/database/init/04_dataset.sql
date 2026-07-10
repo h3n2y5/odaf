@@ -1,0 +1,51 @@
+-- =============================================================================
+-- ODAF Metadata Repository - Dataset Domain (DS_*)
+-- gvenzl menjalankan skrip ini sebagai SYS@CDB$ROOT; alihkan ke PDB & schema ODAF.
+ALTER SESSION SET CONTAINER = FREEPDB1;
+ALTER SESSION SET CURRENT_SCHEMA = ODAF;
+--
+-- Volume 2 Bab 14 (Dataset Metadata), Volume 3 Bab 11 (Dataset Engine)
+-- Sumber data generik untuk CRUD engine + List of Values.
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS DS_DATASET (
+    OBJECT_ID          RAW(16)                  DEFAULT SYS_GUID() NOT NULL,
+    OBJECT_CODE        VARCHAR2(100 CHAR)       NOT NULL,
+    OBJECT_NAME        VARCHAR2(200 CHAR)       NOT NULL,
+    SOURCE_TYPE        VARCHAR2(30 CHAR)        NOT NULL,   -- TABLE|VIEW|SQL|PROCEDURE
+    SOURCE_OBJECT      VARCHAR2(128 CHAR),                  -- nama tabel/view sumber
+    SOURCE_QUERY       CLOB,                                -- untuk SOURCE_TYPE = SQL
+    PRIMARY_KEY_COLUMN VARCHAR2(128 CHAR),
+    SOFT_DELETE_FLAG   NUMBER(1)                DEFAULT 1 NOT NULL,
+    DESCRIPTION        CLOB,
+    VERSION_NO         NUMBER(10)               DEFAULT 1 NOT NULL,
+    STATUS             VARCHAR2(30 CHAR)        DEFAULT 'DRAFT' NOT NULL,
+    CREATED_AT         TIMESTAMP WITH TIME ZONE DEFAULT SYSTIMESTAMP NOT NULL,
+    UPDATED_AT         TIMESTAMP WITH TIME ZONE DEFAULT SYSTIMESTAMP NOT NULL,
+    CREATED_BY         RAW(16),
+    UPDATED_BY         RAW(16),
+    CONSTRAINT PK_DS_DATASET PRIMARY KEY (OBJECT_ID),
+    CONSTRAINT UK_DS_DATASET_CODE UNIQUE (OBJECT_CODE),
+    CONSTRAINT CK_DS_DATASET_SOURCE CHECK (SOURCE_TYPE IN ('TABLE','VIEW','SQL','PROCEDURE')),
+    CONSTRAINT CK_DS_DATASET_SOFTDEL CHECK (SOFT_DELETE_FLAG IN (0, 1))
+);
+
+CREATE TABLE IF NOT EXISTS DS_LOV (
+    OBJECT_ID      RAW(16)                    DEFAULT SYS_GUID() NOT NULL,
+    OBJECT_CODE    VARCHAR2(100 CHAR)         NOT NULL,
+    OBJECT_NAME    VARCHAR2(200 CHAR)         NOT NULL,
+    LOV_TYPE       VARCHAR2(30 CHAR)          NOT NULL,   -- STATIC|SQL|VIEW|PROCEDURE|REST
+    VALUE_COLUMN   VARCHAR2(128 CHAR),
+    LABEL_COLUMN   VARCHAR2(128 CHAR),
+    SOURCE_QUERY   CLOB,                                  -- SQL/definisi statis (JSON)
+    DESCRIPTION    CLOB,
+    VERSION_NO     NUMBER(10)                 DEFAULT 1 NOT NULL,
+    STATUS         VARCHAR2(30 CHAR)          DEFAULT 'DRAFT' NOT NULL,
+    CREATED_AT     TIMESTAMP WITH TIME ZONE   DEFAULT SYSTIMESTAMP NOT NULL,
+    UPDATED_AT     TIMESTAMP WITH TIME ZONE   DEFAULT SYSTIMESTAMP NOT NULL,
+    CREATED_BY     RAW(16),
+    UPDATED_BY     RAW(16),
+    CONSTRAINT PK_DS_LOV PRIMARY KEY (OBJECT_ID),
+    CONSTRAINT UK_DS_LOV_CODE UNIQUE (OBJECT_CODE),
+    CONSTRAINT CK_DS_LOV_TYPE CHECK (LOV_TYPE IN ('STATIC','SQL','VIEW','PROCEDURE','REST'))
+);

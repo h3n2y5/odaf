@@ -1,0 +1,173 @@
+Fase 1 — Arsitektur Platform
+Volume 1 (SAD) dengan struktur berbasis ISO 42010 + arc42 + C4 + RFC.
+Semua prinsip, keputusan arsitektur (ADR), dan model kualitas ditetapkan di sini.
+Fase 2 — Meta Model
+Volume 2 mendefinisikan meta model ODAF (Application, Module, Menu, Resource, Page, Region, Component, Dataset, Workflow, Permission, dll.).
+Dari meta model inilah ERD Oracle dan DDL diturunkan.
+Fase 3 — Compiler & Runtime
+Volume 3 mendefinisikan kontrak antarmuka (Compiler, Runtime, Renderer, DatasetProvider, PermissionProvider, dll.) sebelum satu baris kode PHP ditulis.
+Fase 4 — Studio
+Volume 4 mendefinisikan ODAF Studio sebagai IDE metadata-driven.
+Fase 5 — ERP Reference Implementation
+Volume 5 menunjukkan bagaimana seluruh spesifikasi diwujudkan dalam ERP lengkap.
+
+docs/
+│
+├── shared/
+│   ├── adr/
+│   ├── edr/
+│   ├── glossary/
+│   ├── templates/
+│   ├── diagrams/
+│   ├── styles/
+│   └── decisions/
+│
+├── volume-01-sad/
+│   ├── README.md
+│   ├── SUMMARY.md
+│   ├── 01-Document-Control.md
+│   ├── 02-Executive-Summary.md
+│   ├── 03-Introduction.md
+│   ├── 04-Stakeholders.md
+│   ├── 05-Architecture-Drivers.md
+│   ├── 06-Quality-Attributes.md
+│   ├── 07-Constraints.md
+│   ├── 08-Context-View.md
+│   ├── 09-Solution-Strategy.md
+│   ├── 10-Building-Block-View.md
+│   ├── 11-Runtime-View.md
+│   ├── 12-Deployment-View.md
+│   ├── 13-Cross-Cutting-Concepts.md
+│   ├── 14-Architecture-Principles.md
+│   ├── 15-Architecture-Decisions.md
+│   ├── 16-Conformance.md
+│   ├── 17-Governance.md
+│   ├── 18-Roadmap.md
+│   ├── 19-References.md
+│   └── 20-Appendix.md
+├── volume-02-database/
+│   ├── README.md
+│   ├── SUMMARY.md
+│   ├── 01-Database-Architecture.md
+│   ├── 02-Repository-Overview.md
+│   ├── 03-Domain-Model.md
+│   ├── 04-Metadata-Architecture.md
+│   ├── 05-Metadata-Meta-Model.md
+│   ├── 06-Naming-Standards.md
+│   ├── 07-Universal-Metadata-Object.md
+│   ├── 08-Key-Strategy.md
+│   ├── 09-Versioning-Strategy.md
+│   ├── 10-Audit-Strategy.md
+│   ├── 11-Security-Model.md
+│   ├── 12-Application-Metadata.md
+│   ├── 13-UI-Metadata.md
+│   ├── 14-Dataset-Metadata.md
+│   ├── 15-Workflow-Metadata.md
+│   ├── 16-Validation-Metadata.md
+│   ├── 17-Reporting-Metadata.md
+│   ├── 18-Notification-Metadata.md
+│   ├── 19-Integration-Metadata.md
+│   ├── 20-Deployment-Metadata.md
+│   ├── 21-Runtime-Metadata.md
+│   ├── 22-Governance-Metadata.md
+│   ├── 23-Knowledge-Metadata.md
+│   ├── 24-Enterprise-ERD.md
+│   ├── 25-Core-DDL.md
+│   ├── 26-Business-DDL.md
+│   ├── 27-History-DDL.md
+│   ├── 28-Security-DDL.md
+│   ├── 29-Views.md
+│   ├── 30-Packages.md
+│   ├── 31-Compiler-Repository.md
+│   ├── 32-Runtime-Repository.md
+│   ├── 33-Deployment-Repository.md
+│   ├── 34-Seed-Data.md
+│   ├── 35-Performance.md
+│   ├── 36-Backup-Recovery.md
+│   ├── 37-Migration.md
+│   ├── 38-Conformance.md
+│	└── 39-Appendix.md
+├── volume-03-core/
+│   ├── README.md
+│   ├── SUMMARY.md
+│	├── 01-Architecture-Overview.md
+│	├── 02-Core-Kernel.md
+│	├── 03-Metadata-Compiler-Infrastructure.md
+│	├── 04-Compiler-Frontend.md
+│	├── 05-Metadata-IR.md
+│	├── 06-Compiler-Optimizer.md
+│	├── 07-Compiler-Backends.md
+│	├── 08-Runtime-Kernel.md
+│	├── 09-Service-Registry.md
+│	├── 10-Execution-Context.md
+│	├── 11-Dataset-Engine.md
+│	├── 12-Workflow-Engine.md
+│	├── 13-Rule-Engine.md
+│	├── 14-UI-Rendering-Engine.md
+│	├── 15-Notification-Engine.md
+│	├── 16-Integration-Engine.md
+│	├── 17-Report-Engine.md
+│	├── 18-Security-Engine.md
+│	├── 19-Deployment-Engine.md
+│	├── 20-Bootstrap-Engine.md
+│	├── 21-Recovery-Engine.md
+│	├── 22-Migration-Engine.md
+│	├── 23-Conformance-Engine.md
+│	├── 24-Performance-Engine.md
+│	├── 25-Knowledge-Engine.md
+│	├── 26-Plugin-Architecture.md
+│	├── 27-Event-Bus.md
+│	├── 28-Scheduler.md
+│	├── 29-Observability.md
+│	├── 30-Telemetry.md
+│	├── 31-Platform-Lifecycle.md
+│	├── 32-Testing-Strategy.md
+│	├── 33-Scalability.md
+│	├── 34-HA-Disaster-Recovery.md
+│	├── 35-Platform-Operations.md
+│	├── 36-Extension-SDK.md
+│	├── 37-Core-API.md
+│	├── 38-Conformance.md
+│	└── 39-Appendix.md
+├── volume-04-Studio/
+│   ├── README.md
+│   ├── SUMMARY.md
+│   ├── 01-Studio-Architecture.md
+│   ├── 02-Workspace-Model.md
+│   ├── 03-Project-System.md
+│   ├── 04-Metadata-Explorer.md
+│   ├── 05-Visual-Designer.md
+│   ├── 06-Graph-Designer.md
+│   ├── 07-Workflow-Designer.md
+│   ├── 08-UI-Designer.md
+│   ├── 09-Dataset-Designer.md
+│   ├── 10-Rule-Designer.md
+│   ├── 11-Security-Designer.md
+│   ├── 12-Report-Designer.md
+│   ├── 13-Integration-Designer.md
+│   ├── 14-Extension-Studio.md
+│   ├── 15-Compiler-Studio.md
+│   ├── 16-Debugger.md
+│   ├── 17-Simulator.md
+│   ├── 18-Profiler.md
+│   ├── 19-Observability-Studio.md
+│   ├── 20-Knowledge-Studio.md
+│   ├── 21-AI-Assistant.md
+│   ├── 22-Collaboration.md
+│   ├── 23-Version-Control.md
+│   ├── 24-Testing-Studio.md
+│   ├── 25-Deployment-Studio.md
+│   ├── 26-Marketplace.md
+│   ├── 27-Administration.md
+│   ├── 28-Personalization.md
+│   ├── 29-Plugin-SDK.md
+│   ├── 30-Studio-API.md
+│   ├── 31-Studio-Configuration.md
+│   ├── 32-Accessibility.md
+│   ├── 33-Performance.md
+│   ├── 34-Security.md
+│   ├── 35-Offline-Mode.md
+│   ├── 36-Future-Studio.md
+│   ├── 37-Reference-Architecture.md
+│   ├── 38-Conformance.md
+└── └── 39-Appendix.md

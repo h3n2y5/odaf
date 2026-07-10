@@ -1,0 +1,154 @@
+1
+
+# =============================================================================
+2
+
+# ODAF Application Image - PHP 8.4 CLI + Oracle Instant Client + oci8
+3
+
+# =============================================================================
+4
+
+FROM php:8.4-cli-bookworm
+5
+
+
+6
+
+ENV ORACLE_HOME=/opt/oracle/instantclient
+7
+
+ENV LD_LIBRARY_PATH=/opt/oracle/instantclient
+8
+
+
+9
+
+# --- System dependencies ----------------------------------------------------
+10
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+11
+
+        libaio1 \
+12
+
+        unzip \
+13
+
+        curl \
+14
+
+        git \
+15
+
+        ca-certificates \
+16
+
+        libzip-dev \
+17
+
+    && rm -rf /var/lib/apt/lists/*
+18
+
+
+19
+
+# --- Oracle Instant Client (Basic Lite + SDK) --------------------------------
+20
+
+# Menggunakan permalink "latest" Oracle (lebih stabil daripada versi spesifik).
+21
+
+# Untuk environment offline: letakkan kedua zip di docker/oracle/ dan ganti
+22
+
+# langkah curl dengan COPY.
+23
+
+RUN mkdir -p /opt/oracle \
+24
+
+    && cd /opt/oracle \
+25
+
+    && curl -fsSLO https://download.oracle.com/otn_software/linux/instantclient/instantclient-basiclite-linuxx64.zip \
+26
+
+    && curl -fsSLO https://download.oracle.com/otn_software/linux/instantclient/instantclient-sdk-linuxx64.zip \
+27
+
+    && unzip -o -q instantclient-basiclite-linuxx64.zip \
+28
+
+    && unzip -o -q instantclient-sdk-linuxx64.zip \
+29
+
+    && rm -f instantclient-*.zip \
+30
+
+    && mv instantclient_* instantclient \
+31
+
+    && echo /opt/oracle/instantclient > /etc/ld.so.conf.d/oracle-instantclient.conf \
+32
+
+    && ldconfig
+33
+
+
+34
+
+# --- PHP extensions ----------------------------------------------------------
+35
+
+# yajra/laravel-oci8 memerlukan ekstensi oci8 (bukan pdo_oci).
+36
+
+RUN docker-php-ext-configure zip \
+37
+
+    && docker-php-ext-install zip \
+38
+
+    && echo 'instantclient,/opt/oracle/instantclient' | pecl install oci8 \
+39
+
+    && docker-php-ext-enable oci8
+40
+
+
+41
+
+# --- Composer ----------------------------------------------------------------
+42
+
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+43
+
+
+44
+
+COPY docker/php.ini /usr/local/etc/php/conf.d/odaf.ini
+45
+
+COPY docker/entrypoint.sh /usr/local/bin/odaf-entrypoint
+46
+
+RUN chmod +x /usr/local/bin/odaf-entrypoint
+47
+
+
+48
+
+WORKDIR /var/www/html
+49
+
+
+50
+
+# Entrypoint menyiapkan env + composer install + key:generate lalu serve.
+51
+
+CMD ["odaf-entrypoint"]
+52

@@ -1,0 +1,55 @@
+services:
+  # ---------------------------------------------------------------------------
+  # Oracle Database 23ai Free - ODAF Metadata Repository (BB-01)
+  # Community image (gvenzl) memudahkan bootstrap lokal; untuk produksi gunakan
+  # image resmi container-registry.oracle.com/database/free.
+  # ---------------------------------------------------------------------------
+  oracle:
+    image: gvenzl/oracle-free:23-slim
+    container_name: odaf-oracle
+    environment:
+      ORACLE_PASSWORD: ${DB_SYSTEM_PASSWORD:-OdafSys2026}
+      APP_USER: ${DB_USERNAME:-ODAF}
+      APP_USER_PASSWORD: ${DB_PASSWORD:-OdafApp2026}
+    ports:
+      - "${DB_PORT:-1521}:1521"
+    volumes:
+      - odaf-oracle-data:/opt/oracle/oradata
+      # Skrip di initdb.d dieksekusi otomatis (berurutan) saat DB pertama dibuat.
+      - ./database/init:/container-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 90s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # ODAF Application - PHP 8.4 + oci8 (Runtime & Compiler host)
+  # ---------------------------------------------------------------------------
+  app:
+    build:
+      context: .
+      dockerfile: docker/app.Dockerfile
+    container_name: odaf-app
+    working_dir: /var/www/html
+    volumes:
+      - ./:/var/www/html
+    ports:
+      - "${APP_PORT:-8080}:8000"
+    depends_on:
+      oracle:
+        condition: service_healthy
+    environment:
+      DB_CONNECTION: oracle
+      DB_HOST: oracle
+      DB_PORT: 1521
+      DB_SERVICE_NAME: ${DB_SERVICE_NAME:-FREEPDB1}
+      DB_USERNAME: ${DB_USERNAME:-ODAF}
+      DB_PASSWORD: ${DB_PASSWORD:-OdafApp2026}
+    restart: unless-stopped
+
+volumes:
+  odaf-oracle-data:
+    name: odaf-oracle-data

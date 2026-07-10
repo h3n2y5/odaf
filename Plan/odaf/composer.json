@@ -1,0 +1,61 @@
+{
+    "name": "odaf/platform",
+    "type": "project",
+    "description": "Oracle Dynamic Application Framework (ODAF/MDAF) - Metadata-Driven Application Platform",
+    "keywords": ["odaf", "mdaf", "metadata", "low-code", "oracle", "laravel"],
+    "license": "proprietary",
+    "require": {
+        "php": "^8.4",
+        "laravel/framework": "^11.0",
+        "livewire/livewire": "^3.5",
+        "yajra/laravel-oci8": "^11.0",
+        "symfony/uid": "^7.0"
+    },
+    "require-dev": {
+        "fakerphp/faker": "^1.23",
+        "laravel/pint": "^1.17",
+        "laravel/sail": "^1.31",
+        "mockery/mockery": "^1.6",
+        "nunomaduro/collision": "^8.1",
+        "pestphp/pest": "^3.0",
+        "pestphp/pest-plugin-laravel": "^3.0",
+        "phpstan/phpstan": "^1.12"
+    },
+    "autoload": {
+        "psr-4": {
+            "App\\": "app/",
+            "Odaf\\": "src/",
+            "Database\\Factories\\": "database/factories/",
+            "Database\\Seeders\\": "database/seeders/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "post-autoload-dump": [
+            "@php artisan package:discover --ansi"
+        ],
+        "lint": "pint --test",
+        "analyse": "phpstan analyse",
+        "test": "pest"
+    },
+    "extra": {
+        "laravel": {
+            "dont-discover": []
+        }
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "preferred-install": "dist",
+        "sort-packages": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true,
+            "php-http/discovery": true
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
