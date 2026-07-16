@@ -18,7 +18,7 @@ final class ExportMetadataCommand extends Command
 
     public function handle(MetadataRepositoryInterface $repository): int
     {
-        $appCode = strtoupper($this->argument('applicationCode'));
+        $appCode = (string) $this->argument('applicationCode');
         
         try {
             // Cari ID Aplikasi berdasarkan kodenya
