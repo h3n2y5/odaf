@@ -10,7 +10,7 @@ foreach ($tables as $t) {
         $cols = [];
         $vals = [];
         foreach ((array)$row as $k => $v) {
-            $cols[] = "\"$k\"";
+            $cols[] = "\"" . strtoupper((string)$k) . "\"";
             if ($v === null) {
                 $vals[] = "NULL";
             } else {
