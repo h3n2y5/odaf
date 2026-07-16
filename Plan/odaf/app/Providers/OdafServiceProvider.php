@@ -8,6 +8,8 @@ use App\Auth\OdafUserProvider;
 use App\Console\Commands\CompileApplicationCommand;
 use App\Console\Commands\ScaffoldTableCommand;
 use App\Console\Commands\SetUserPasswordCommand;
+use App\Console\Commands\ExportMetadataCommand;
+use App\Console\Commands\ImportMetadataCommand;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Support\Facades\Auth;
@@ -202,6 +204,8 @@ final class OdafServiceProvider extends ServiceProvider
                 CompileApplicationCommand::class,
                 SetUserPasswordCommand::class,
                 ScaffoldTableCommand::class,
+                ExportMetadataCommand::class,
+                ImportMetadataCommand::class,
             ]);
         }
         
