@@ -73,6 +73,8 @@ final class ImportMetadataCommand extends Command
         
         $this->info("Mengimpor " . count($rows) . " baris ke tabel {$table}...");
         
+        $validColumns = array_map('strtoupper', DB::getSchemaBuilder()->getColumnListing($table));
+        
         foreach ($rows as $row) {
             $objectIdHex = $row['OBJECT_ID'];
             $exists = DB::table($table)->whereRaw("OBJECT_ID = HEXTORAW(?)", [$objectIdHex])->exists();
@@ -81,6 +83,11 @@ final class ImportMetadataCommand extends Command
             foreach ($row as $col => $val) {
                 // Abaikan kolom timestamp audit agar database menggunakan default/otomatis
                 if (in_array($col, ['CREATED_AT', 'UPDATED_AT', 'CREATED_BY', 'UPDATED_BY'])) {
+                    continue;
+                }
+                
+                // Cegah error ORA-00904 jika struktur database server tertinggal
+                if (!in_array(strtoupper($col), $validColumns)) {
                     continue;
                 }
                 
