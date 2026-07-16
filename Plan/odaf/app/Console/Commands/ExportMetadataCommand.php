@@ -54,6 +54,55 @@ final class ExportMetadataCommand extends Command
                 }
             });
             
+            // Ekspor Skema Fisik (Tabel dan Data)
+            $this->info("Mengekspor skema dan data fisik tabel {$appCode}_*...");
+            $schemaData = ['ddl' => [], 'dml' => []];
+            $tables = \Illuminate\Support\Facades\DB::table('user_tables')
+                ->where('table_name', 'LIKE', strtoupper($appCode) . '_%')
+                ->pluck('table_name');
+                
+            $dbUser = config('database.connections.oracle.username', 'ODAF');
+            
+            foreach ($tables as $t) {
+                try {
+                    $ddl = \Illuminate\Support\Facades\DB::select("SELECT dbms_metadata.get_ddl('TABLE', ?, ?) as ddl FROM dual", [$t, strtoupper($dbUser)])[0]->ddl;
+                    $schemaData['ddl'][$t] = $ddl;
+                } catch (\Throwable $e) {
+                    $this->warn("Gagal mengekstrak DDL untuk tabel {$t}: " . $e->getMessage());
+                }
+                
+                $rows = \Illuminate\Support\Facades\DB::table($t)->get();
+                $schemaData['dml'][$t] = [];
+                foreach ($rows as $row) {
+                    $cols = [];
+                    $vals = [];
+                    foreach ((array)$row as $k => $v) {
+                        $cols[] = "\"" . strtoupper((string)$k) . "\"";
+                        if ($v === null) {
+                            $vals[] = "NULL";
+                        } else {
+                            if (str_ends_with(strtoupper((string)$k), '_ID') || str_ends_with(strtoupper((string)$k), '_BY')) {
+                                $vals[] = "HEXTORAW('" . strtoupper(bin2hex((string)$v)) . "')";
+                            } elseif (preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?$/', (string)$v)) {
+                                if (str_contains((string)$v, '.')) {
+                                    $vals[] = "TO_TIMESTAMP('" . $v . "', 'YYYY-MM-DD HH24:MI:SS.FF')";
+                                } else {
+                                    $vals[] = "TO_TIMESTAMP('" . $v . "', 'YYYY-MM-DD HH24:MI:SS')";
+                                }
+                            } elseif (preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$v)) {
+                                $vals[] = "TO_DATE('" . $v . "', 'YYYY-MM-DD')";
+                            } else {
+                                $vals[] = "'" . str_replace("'", "''", (string)$v) . "'";
+                            }
+                        }
+                    }
+                    $colStr = implode(", ", $cols);
+                    $valStr = implode(", ", $vals);
+                    $schemaData['dml'][$t][] = "INSERT INTO \"{$t}\" ({$colStr}) VALUES ({$valStr})";
+                }
+            }
+            $data['schema'] = $schemaData;
+            
             $json = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
             
             $filename = "metadata/{$appCode}.json";

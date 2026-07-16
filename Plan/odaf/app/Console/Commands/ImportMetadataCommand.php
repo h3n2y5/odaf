@@ -56,6 +56,55 @@ final class ImportMetadataCommand extends Command
             
             DB::commit();
             $this->info("Metadata berhasil diimpor tanpa masalah.");
+            
+            // Impor Skema Fisik (Tabel dan Data) jika ada
+            if (isset($data['schema'])) {
+                $this->info("Menjalankan impor skema dan data fisik...");
+                
+                if (isset($data['schema']['ddl'])) {
+                    foreach ($data['schema']['ddl'] as $table => $ddl) {
+                        try {
+                            DB::statement($ddl);
+                            $this->info("Tabel $table berhasil dibuat.");
+                        } catch (\Illuminate\Database\QueryException $e) {
+                            if (!str_contains($e->getMessage(), 'ORA-00955')) {
+                                $this->warn("Gagal membuat tabel $table: " . $e->getMessage());
+                            } else {
+                                $this->info("Tabel $table sudah ada (dilewati).");
+                            }
+                        }
+                    }
+                }
+                
+                if (isset($data['schema']['dml'])) {
+                    // Kosongkan tabel (opsional, karena user ingin 'timpa semua')
+                    // Tapi di Oracle, ini rentan constraint violation jika tabel masih di-referensi.
+                    // Untuk amannya, kita kosongkan saja dan catch error-nya.
+                    foreach ($data['schema']['dml'] as $table => $statements) {
+                        try {
+                            DB::statement("DELETE FROM \"$table\"");
+                            $this->info("Data tabel $table dibersihkan.");
+                        } catch (\Exception $e) {
+                            $this->warn("Gagal membersihkan tabel $table: " . $e->getMessage());
+                        }
+                    }
+                    
+                    // Eksekusi INSERT
+                    foreach ($data['schema']['dml'] as $table => $statements) {
+                        $count = 0;
+                        foreach ($statements as $dml) {
+                            try {
+                                DB::statement($dml);
+                                $count++;
+                            } catch (\Exception $e) {
+                                // Abaikan ORA-00001 (Unique constraint) jika tidak dibersihkan
+                            }
+                        }
+                        $this->info("Berhasil mengimpor $count baris ke tabel $table.");
+                    }
+                }
+            }
+            
             return self::SUCCESS;
         } catch (Throwable $e) {
             DB::rollBack();
