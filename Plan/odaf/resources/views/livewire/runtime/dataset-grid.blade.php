@@ -3,7 +3,18 @@
       <div class="flex flex-col flex-1 min-h-0">
         <div class="flex items-center justify-between mb-3 shrink-0">
             <div>
-                <h1 class="text-xl font-semibold text-slate-800">{{ $page['title'] }}</h1>
+                <h1 class="text-xl font-semibold text-slate-800 flex items-center gap-2">
+                    {{ $page['title'] }}
+                    @if ($isAdmin ?? false)
+                        <a href="{{ route('studio.grid', ['table' => $tableName]) }}" target="_blank"
+                           class="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-indigo-100 hover:text-indigo-700" title="Buka Data Manager (Admin)">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"></path>
+                            </svg>
+                            {{ $tableName }}
+                        </a>
+                    @endif
+                </h1>
                 <p class="text-sm text-slate-500">{{ $total }} baris</p>
             </div>
             @if ($canWrite)
@@ -40,6 +51,19 @@
                     </svg>
                     Clone ({{ count($selected) }})
                 </button>
+            @endif
+
+            @if (count($selected) && isset($bulkWorkflowTransitions) && $bulkWorkflowTransitions !== [])
+                @foreach ($bulkWorkflowTransitions as $tr)
+                    <button wire:click="performBulkWorkflow('{{ $tr['action'] }}')"
+                            wire:confirm="Jalankan {{ $tr['label'] }} untuk {{ count($selected) }} data terpilih?"
+                            class="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                        {{ $tr['label'] }} ({{ count($selected) }})
+                    </button>
+                @endforeach
             @endif
 
             <div class="ml-auto flex items-center gap-2">
@@ -106,20 +130,26 @@
                                    wire:click="toggleSelectAll(@js($pageKeys))"
                                    class="rounded border-slate-300 text-indigo-600">
                         </th>
+                        <th class="px-4 py-2 text-left font-medium text-slate-600">Aksi</th>
                         @foreach ($columns as $col)
                             <th class="resizable px-4 py-2 text-left font-medium text-slate-600 cursor-pointer select-none whitespace-nowrap"
                                 wire:click="sortBy('{{ $col['column'] }}')">
-                                {{ $col['label'] }}
-                                @if ($sortColumn === $col['column'])
-                                    <span class="text-slate-400">{{ $sortDir === 'ASC' ? '▲' : '▼' }}</span>
+                                @if ($isAdmin ?? false)
+                                    <div class="text-[9px] uppercase tracking-wider text-slate-400/80 mb-0.5 leading-none" title="Database Column">{{ $col['column'] }}</div>
                                 @endif
+                                <div class="flex items-center gap-1">
+                                    {{ $col['label'] }}
+                                    @if ($sortColumn === $col['column'])
+                                        <span class="text-slate-400">{{ $sortDir === 'ASC' ? '▲' : '▼' }}</span>
+                                    @endif
+                                </div>
                                 <span class="col-resizer" wire:ignore onclick="event.stopPropagation()"></span>
                             </th>
                         @endforeach
-                        <th class="px-4 py-2 text-right font-medium text-slate-600">Aksi</th>
                     </tr>
                     {{-- Baris filter per kolom --}}
                     <tr class="bg-white">
+                        <th></th>
                         <th></th>
                         @foreach ($columns as $col)
                             <th class="px-2 py-1.5">
@@ -129,16 +159,51 @@
                                        class="w-full min-w-[8rem] rounded border border-slate-200 px-2 py-1 text-xs font-normal focus:border-indigo-500 focus:ring-indigo-500">
                             </th>
                         @endforeach
-                        <th></th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100">
                     @forelse ($rows as $row)
-                        @php $key = $row[$primaryKey] ?? null; @endphp
-                        <tr class="hover:bg-slate-50" wire:key="row-{{ $key }}">
+                        @php 
+                            $key = $row[$primaryKey] ?? null; 
+                            $isChecked = in_array((string)$key, $selected, true);
+                            $rowTransitions = $workflowTransitions[$key] ?? [];
+                            
+                            $rowClass = 'hover:bg-slate-50';
+                            if ($isChecked) {
+                                $rowClass = 'bg-indigo-50/70 hover:bg-indigo-50';
+                            } elseif ($rowTransitions !== []) {
+                                $rowClass = 'bg-amber-50/30 hover:bg-amber-50/60';
+                            }
+                        @endphp
+                        <tr class="{{ $rowClass }}" wire:key="row-{{ $key }}">
                             <td class="px-3 py-2 w-8">
                                 <input type="checkbox" value="{{ $key }}" wire:model.live="selected"
                                        class="rounded border-slate-300 text-indigo-600">
+                            </td>
+                            <td class="px-4 py-2 text-left whitespace-nowrap">
+                                <a href="{{ route('odaf.form', ['appCode' => $appCode, 'pageCode' => $page['code'], 'key' => $key]) }}"
+                                   wire:navigate
+                                   class="text-indigo-600 hover:underline">{{ $canWrite ? 'Ubah' : 'Lihat' }}</a>
+                                @if ($canWrite)
+                                    <button type="button"
+                                            wire:click="delete('{{ $key }}')"
+                                            wire:confirm="Hapus data ini?"
+                                            class="ml-3 text-rose-600 hover:underline">Hapus</button>
+                                @endif
+
+                                @php $rowTransitions = $workflowTransitions[$key] ?? []; @endphp
+                                @if ($rowTransitions !== [])
+                                    <div class="mt-1.5 flex gap-1.5">
+                                        @foreach ($rowTransitions as $tr)
+                                            <button type="button"
+                                                    wire:click="performWorkflow('{{ $key }}', '{{ $tr['action'] }}')"
+                                                    wire:confirm="Lakukan: {{ $tr['label'] }}?"
+                                                    class="inline-flex items-center rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 hover:bg-amber-200 ring-1 ring-inset ring-amber-500/20">
+                                                {{ $tr['label'] }}
+                                            </button>
+                                        @endforeach
+                                    </div>
+                                @endif
                             </td>
                             @foreach ($columns as $col)
                                 @php
@@ -178,17 +243,6 @@
                                     @endif
                                 </td>
                             @endforeach
-                            <td class="px-4 py-2 text-right whitespace-nowrap">
-                                <a href="{{ route('odaf.form', ['appCode' => $appCode, 'pageCode' => $page['code'], 'key' => $key]) }}"
-                                   wire:navigate
-                                   class="text-indigo-600 hover:underline">{{ $canWrite ? 'Ubah' : 'Lihat' }}</a>
-                                @if ($canWrite)
-                                    <button type="button"
-                                            wire:click="delete('{{ $key }}')"
-                                            wire:confirm="Hapus data ini?"
-                                            class="ml-3 text-rose-600 hover:underline">Hapus</button>
-                                @endif
-                            </td>
                         </tr>
                     @empty
                         <tr>

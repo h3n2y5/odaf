@@ -23,6 +23,7 @@ interface AuditEngineInterface
         ExecutionContextInterface $context,
         string $eventType,
         string $objectId,
+        ?string $objectName = null,
         array $before = [],
         array $after = [],
     ): void;

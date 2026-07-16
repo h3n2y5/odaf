@@ -7,13 +7,22 @@
                     <h1 class="text-3xl font-bold text-slate-900">Applications</h1>
                     <p class="mt-1 text-sm text-slate-500">Design and manage your metadata-driven applications</p>
                 </div>
-                <button wire:click="createApplication" 
-                        class="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-white font-medium hover:bg-indigo-700 transition-colors">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
-                    </svg>
-                    New Application
-                </button>
+                <div class="flex items-center gap-3">
+                    <button wire:click="openImportModal" 
+                            class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-slate-700 font-medium hover:bg-slate-50 transition-colors">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
+                        </svg>
+                        Restore Backup
+                    </button>
+                    <button wire:click="createApplication" 
+                            class="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-white font-medium hover:bg-indigo-700 transition-colors">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                        </svg>
+                        New Application
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -117,18 +126,42 @@
                             </a>
                             <button wire:click="compileApp('{{ $app['ID'] }}')" 
                                     wire:confirm="Compile and activate {{ $app['OBJECT_CODE'] }}?"
-                                    class="inline-flex items-center justify-center rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors">
+                                    title="Compile & Activate"
+                                    class="inline-flex items-center justify-center rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 hover:text-indigo-600 transition-colors">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
                                 </svg>
                             </button>
                             <a href="/studio/t/APP_APPLICATION/edit/{{ base64_encode(json_encode(['OBJECT_ID' => $app['ID']])) }}" 
+                               title="Edit Metadata Aplikasi"
                                class="inline-flex items-center justify-center rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
                                 </svg>
                             </a>
+                            <button wire:click="downloadDataCsv('{{ $app['ID'] }}')" 
+                                    title="Download Data Tabel (CSV/ZIP)"
+                                    class="inline-flex items-center justify-center rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition-colors">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path>
+                                </svg>
+                            </button>
+                            <button wire:click="exportApp('{{ $app['ID'] }}')" 
+                                    title="Download Backup Metadata (.json)"
+                                    class="inline-flex items-center justify-center rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 hover:text-emerald-600 transition-colors">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                                </svg>
+                            </button>
+                            <button wire:click="deleteApp('{{ $app['ID'] }}')" 
+                                    wire:confirm="Yakin ingin menghapus aplikasi {{ $app['OBJECT_NAME'] }} secara permanen? Peringatan: Tabel transaksi database untuk aplikasi ini juga akan di DROP."
+                                    title="Hapus Aplikasi & Data"
+                                    class="inline-flex items-center justify-center rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-rose-50 hover:text-rose-600 transition-colors">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                </svg>
+                            </button>
                         </div>
                     </div>
                 @endforeach
@@ -156,5 +189,59 @@
                 </div>
             </div>
         </div>
+        {{-- Modal: Import Backup --}}
+        @if ($showImportModal)
+            <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+                <div class="bg-white rounded-xl shadow-2xl w-full max-w-md">
+                    <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+                        <h3 class="text-lg font-semibold text-slate-900">Restore Backup Aplikasi</h3>
+                        <button wire:click="closeImportModal" class="text-slate-400 hover:text-slate-600">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                            </svg>
+                        </button>
+                    </div>
+
+                    <div class="p-6 space-y-4">
+                        <p class="text-sm text-slate-600 mb-4">Pilih file JSON backup yang pernah Anda unduh sebelumnya. Sistem akan mengembalikan struktur form, menu, user admin, serta data tabel fisiknya secara otomatis.</p>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-1">
+                                File Backup (.json) <span class="text-rose-500">*</span>
+                            </label>
+                            <input type="file" wire:model="backupFile" accept=".json"
+                                   class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-600 focus:outline-none focus:border-indigo-500">
+                            <div wire:loading wire:target="backupFile" class="mt-2 text-xs text-indigo-600">Mengunggah file...</div>
+                            @error('backupFile')
+                                <p class="mt-1 text-xs text-rose-600">{{ $message }}</p>
+                            @enderror
+                        </div>
+                        
+                        <div class="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700">
+                            <strong>Perhatian:</strong> Jika aplikasi dengan ID yang sama sudah ada, aplikasi lama akan dihapus terlebih dahulu beserta tabel transaksinya!
+                        </div>
+                    </div>
+
+                    <div class="px-6 py-4 border-t border-slate-200 flex justify-end gap-2">
+                        <button wire:click="closeImportModal"
+                                class="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50">
+                            Batal
+                        </button>
+                        <button wire:click="importApp"
+                                wire:loading.attr="disabled"
+                                class="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-60 flex items-center gap-2">
+                            <span wire:loading.remove wire:target="importApp">Mulai Restore</span>
+                            <span wire:loading wire:target="importApp">
+                                <svg class="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                Memproses...
+                            </span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        @endif
     </x-studio-shell>
 </div>

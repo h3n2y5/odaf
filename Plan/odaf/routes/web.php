@@ -11,6 +11,7 @@ use App\Livewire\Studio\Designer\ApplicationDashboard;
 use App\Livewire\Studio\Designer\ApplicationOverview;
 use App\Livewire\Studio\Designer\FormBuilder;
 use App\Livewire\Studio\Designer\LovDesigner;
+use App\Livewire\Studio\Designer\AccessControl;
 use App\Livewire\Studio\StudioForm;
 use App\Livewire\Studio\StudioGrid;
 use App\Livewire\Studio\StudioHome;
@@ -25,8 +26,8 @@ use Illuminate\Support\Facades\Route;
 | Package terkompilasi (BB-03/04/05). Tidak ada route per-entity.
 */
 
-// Root mengarah ke aplikasi demo (otomatis ke /login bila belum autentikasi).
-Route::get('/', fn () => redirect()->route('odaf.home', ['appCode' => 'ODAF_DEMO']));
+// Root mengarah ke halaman pemilihan aplikasi (butuh autentikasi).
+Route::get('/', \App\Livewire\Runtime\AppLauncher::class)->name('odaf.launcher')->middleware('auth');
 
 // Info platform (diagnostik) dipindahkan ke /status.
 Route::get('/status', fn () => response()->json([
@@ -63,17 +64,21 @@ Route::middleware('auth')->group(function (): void {
 
     // --- ODAF Studio Data Manager (CRUD generik semua tabel, admin only) ----
     Route::get('/studio', StudioHome::class)->name('studio.home');
+    Route::get('/studio/sql', \App\Livewire\Studio\SqlRunner::class)->name('studio.sql');
     Route::get('/studio/t/{table}', StudioGrid::class)->name('studio.grid');
     Route::get('/studio/t/{table}/edit/{key?}', StudioForm::class)->name('studio.form');
     
     // --- ODAF Studio Visual Designer (F3 - Metadata authoring visual) --------
     Route::get('/studio/designer', ApplicationDashboard::class)->name('studio.designer');
-    Route::get('/studio/designer/app/new', fn () => 'App Wizard - Coming Soon')->name('studio.designer.app.new');
+    Route::get('/studio/designer/app/new', \App\Livewire\Studio\Designer\AppWizard::class)->name('studio.designer.app.new');
     Route::get('/studio/designer/app/{appId}', ApplicationOverview::class)->name('studio.designer.app.overview');
     Route::get('/studio/designer/form/{pageId}', FormBuilder::class)->name('studio.designer.form');
+    Route::get('/studio/designer/workflow/{datasetId}', \App\Livewire\Studio\Designer\WorkflowDesigner::class)->name('studio.designer.workflow');
     Route::get('/studio/designer/lov', fn () => redirect()->route('studio.grid', ['table' => 'DS_LOV']))->name('studio.designer.lov.list');
     Route::get('/studio/designer/lov/new', LovDesigner::class)->name('studio.designer.lov.new');
     Route::get('/studio/designer/lov/{lovId}', LovDesigner::class)->name('studio.designer.lov.edit');
+    Route::get('/studio/designer/access', AccessControl::class)->name('studio.designer.access');
+    Route::get('/studio/designer/roles-users', \App\Livewire\Studio\Designer\RoleUserManager::class)->name('studio.designer.roles-users');
 });
 
 Route::get('/health/db', function () {
@@ -94,3 +99,4 @@ Route::get('/health/db', function () {
         ], 500);
     }
 });
+

@@ -121,6 +121,8 @@ final class OracleDatasetEngine implements DatasetEngineInterface
             $bindings,
         );
 
+        $this->audit($context, 'DATA_CREATE', $key, $this->guessObjectName($data), [], $data);
+
         return $key;
     }
 
@@ -130,6 +132,8 @@ final class OracleDatasetEngine implements DatasetEngineInterface
         $table = $this->tableName($ds);
         $columns = $this->columns($table);
         $pk = strtoupper($ds['primaryKey']);
+
+        $oldData = $this->find($context, $datasetId, $key) ?? [];
 
         $values = $this->filterWritable($data, $columns, $pk);
         $this->applyAuditColumns($values, $columns, $context, 'UPDATE');
@@ -165,6 +169,8 @@ final class OracleDatasetEngine implements DatasetEngineInterface
         if ($affected === 0) {
             throw new RuntimeException('Update gagal: baris tidak ditemukan atau versi telah berubah (optimistic lock).');
         }
+
+        $this->audit($context, 'DATA_UPDATE', $key, $this->guessObjectName(array_merge($oldData, $data)), $oldData, $data);
     }
 
     public function delete(ExecutionContextInterface $context, string $datasetId, string $key): void
@@ -174,6 +180,8 @@ final class OracleDatasetEngine implements DatasetEngineInterface
         $columns = $this->columns($table);
         $pk = strtoupper($ds['primaryKey']);
         [$pkExpr, $pkBind] = $this->keyPredicate($pk, $columns, $key);
+
+        $oldData = $this->find($context, $datasetId, $key) ?? [];
 
         if (($ds['softDelete'] ?? false) && isset($columns['DELETED_AT'])) {
             $set = ['DELETED_AT = SYSTIMESTAMP'];
@@ -191,10 +199,12 @@ final class OracleDatasetEngine implements DatasetEngineInterface
                 $bindings,
             );
 
+            $this->audit($context, 'DATA_DELETE', $key, $this->guessObjectName($oldData), $oldData, []);
             return;
         }
 
         $this->connection->delete("DELETE FROM {$table} WHERE {$pkExpr}", [$pkBind]);
+        $this->audit($context, 'DATA_DELETE', $key, $this->guessObjectName($oldData), $oldData, []);
     }
 
     public function cloneRow(ExecutionContextInterface $context, string $datasetId, string $key): string
@@ -255,7 +265,11 @@ final class OracleDatasetEngine implements DatasetEngineInterface
         $sql = "INSERT INTO {$table} (".implode(', ', $cols).') '
             ."SELECT ".implode(', ', $selects)." FROM {$table} WHERE {$pkExpr}";
 
+        $oldData = $this->find($context, $datasetId, $key) ?? [];
+
         $this->connection->insert($sql, [...$selectBind, $pkBind]);
+
+        $this->audit($context, 'DATA_CLONE', $newKey, $this->guessObjectName($oldData) . ' (Clone)', $oldData, []);
 
         return $newKey;
     }
@@ -641,5 +655,27 @@ final class OracleDatasetEngine implements DatasetEngineInterface
         }
 
         return $out;
+    }
+
+    private function guessObjectName(array $row): ?string
+    {
+        $candidates = ['OBJECT_NAME', 'NAME', 'USERNAME', 'CUSTOMER_NAME', 'TITLE', 'CODE', 'EVENT_CODE', 'DATASET_CODE'];
+        foreach ($candidates as $c) {
+            $val = $row[$c] ?? $row[strtolower($c)] ?? null;
+            if ($val !== null && is_scalar($val)) {
+                return (string) $val;
+            }
+        }
+        return null;
+    }
+
+    private function audit(ExecutionContextInterface $context, string $eventType, string $objectId, ?string $objectName, array $before, array $after): void
+    {
+        try {
+            $engine = app(\Odaf\Engine\Audit\Contracts\AuditEngineInterface::class);
+            $engine->record($context, $eventType, $objectId, $objectName, $before, $after);
+        } catch (\Throwable $e) {
+            // Ignore audit errors so it doesn't fail the business operation
+        }
     }
 }

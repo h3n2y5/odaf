@@ -44,6 +44,11 @@
                             @elseif ($field['widget'] === 'datetime-local')
                                 <input type="datetime-local" wire:model="{{ $model }}" @if ($field['readonly']) readonly @endif
                                        class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-indigo-500">
+                            @elseif ($field['column'] === 'PASSWORD_HASH')
+                                <input type="password" wire:model="{{ $model }}"
+                                       @if ($field['readonly']) readonly @endif
+                                       placeholder="{{ $isEdit ? '(kosongkan jika tidak ingin mengubah sandi)' : '' }}"
+                                       class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-indigo-500">
                             @else
                                 <input type="text" wire:model="{{ $model }}"
                                        @if ($field['readonly']) readonly @endif

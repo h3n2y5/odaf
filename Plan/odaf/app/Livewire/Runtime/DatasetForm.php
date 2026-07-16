@@ -103,13 +103,27 @@ final class DatasetForm extends Component
         if ($page === null || $page['datasetId'] === null) {
             abort(404);
         }
+        $isAdmin = $security->isSuperuser($context);
+
+        // Page status check
+        $pageStatus = $page['status'] ?? 'PUBLISHED';
+        if (! $isAdmin && $pageStatus !== 'PUBLISHED') {
+            $this->addError('form', 'Halaman ini belum dipublikasikan atau tidak tersedia.');
+            return;
+        }
+
         $datasetId = $page['datasetId'];
         $operation = $this->isEdit ? 'UPDATE' : 'CREATE';
 
-        // 1. Authorize (aksi dataset + akses halaman berbutir-halus).
-        $security->authorize($context, $datasetId, $operation);
-        if ($security->accessLevel($context, SecurityEngineInterface::OBJ_PAGE, (string) ($page['id'] ?? '')) !== SecurityEngineInterface::LEVEL_FULL) {
+        // 1. Authorize (akses halaman berbutir-halus).
+        $pageLevel = $security->accessLevel($context, SecurityEngineInterface::OBJ_PAGE, (string) ($page['id'] ?? ''));
+        if ($this->isEdit && $pageLevel !== SecurityEngineInterface::LEVEL_FULL) {
             $this->addError('form', 'Akses hanya-baca: perubahan tidak dapat disimpan.');
+
+            return;
+        }
+        if (! $this->isEdit && ! in_array($pageLevel, [SecurityEngineInterface::LEVEL_FULL, SecurityEngineInterface::LEVEL_APPEND], true)) {
+            $this->addError('form', 'Akses ditolak: tidak dapat membuat data.');
 
             return;
         }
@@ -169,7 +183,7 @@ final class DatasetForm extends Component
         }
 
         // 4. Audit.
-        $audit->record($context, $eventType, $savedKey, [], $payload);
+        // Audit is now handled automatically by DatasetEngine
 
         // 5. Workflow: mulai instance saat record baru dibuat (bila diatur workflow).
         if (! $this->isEdit && $workflow->hasWorkflow($context, $datasetId)) {
@@ -287,6 +301,16 @@ final class DatasetForm extends Component
             abort(404);
         }
 
+        $isAdmin = $security->isSuperuser($context);
+
+        // Filter fields by status
+        $page['fields'] = array_values(array_filter(
+            $page['fields'],
+            function (array $f) use ($isAdmin): bool {
+                return $isAdmin || ($f['status'] ?? 'PUBLISHED') === 'PUBLISHED';
+            }
+        ));
+
         // View-model presentasi dari renderer, nilai diisi dari state form.
         $viewModel = $renderer->renderPage($context, $page, $this->form);
 
@@ -301,10 +325,12 @@ final class DatasetForm extends Component
         ));
 
         // Access-level (SEC_ACCESS): buang NONE, kunci READONLY, samarkan MASKED.
-        $fieldIds = array_map(static fn (array $f): string => (string) $f['id'], $page['fields']);
+        $fieldIds = array_map(static fn (array $f): string => (string) $f['id'], $viewModel['fields']);
         $fieldLevels = $security->accessLevels($context, SecurityEngineInterface::OBJ_FIELD, $fieldIds);
         $pageLevel = $security->accessLevel($context, SecurityEngineInterface::OBJ_PAGE, (string) ($page['id'] ?? ''));
-        $canSave = $pageLevel === SecurityEngineInterface::LEVEL_FULL;
+        
+        $canSave = ($this->isEdit && $pageLevel === SecurityEngineInterface::LEVEL_FULL) 
+                || (! $this->isEdit && in_array($pageLevel, [SecurityEngineInterface::LEVEL_FULL, SecurityEngineInterface::LEVEL_APPEND], true));
 
         $viewModel['fields'] = array_values(array_filter(
             $viewModel['fields'],
@@ -382,14 +408,27 @@ final class DatasetForm extends Component
             ];
         }
 
+        $ds = $kernel->dataset($package->applicationId(), $page['datasetId']);
+
+        // Tab-level security: sembunyikan tab (detail) jika akses page-nya NONE.
+        $details = $page['details'] ?? [];
+        if (! $isAdmin) {
+            $details = array_values(array_filter($details, function(array $detail) use ($security, $context) {
+                if (!isset($detail['pageId'])) return true;
+                return $security->accessLevel($context, SecurityEngineInterface::OBJ_PAGE, (string) $detail['pageId']) !== SecurityEngineInterface::LEVEL_NONE;
+            }));
+        }
+
         return view('livewire.runtime.dataset-form', [
             'nav' => $session->navItems($this->appCode, $package->applicationId()),
             'appCode' => $this->appCode,
             'appName' => $package->toArray()['application']['name'] ?? $this->appCode,
             'vm' => $viewModel,
             'wf' => $wf,
-            'details' => $page['details'] ?? [],
+            'details' => $details,
             'canSave' => $canSave,
+            'isAdmin' => $isAdmin,
+            'tableName' => $ds['sourceObject'] ?? '',
         ]);
     }
 

@@ -73,8 +73,10 @@ final class ApplicationOverview extends Component
     public function tableNamePreview(): string
     {
         $entity = MetadataScaffolder::standardizeEntityName($this->newEntityName);
-
-        return $entity === '' ? '' : 'T_'.$entity;
+        if ($entity === '') return '';
+        
+        $appCode = (string) ($this->application['OBJECT_CODE'] ?? '');
+        return $appCode ? strtoupper($appCode) . '_T_' . $entity : 'T_' . $entity;
     }
 
     /**
@@ -173,7 +175,7 @@ final class ApplicationOverview extends Component
             );
 
             $this->showHdModal = false;
-            session()->flash('success', "Header-detail dibuat: header T_{$this->cleanName($this->hdHeaderName)} + detail T_{$this->cleanName($this->hdDetailName)} (FK {$result['fkColumn']}).");
+            session()->flash('success', "Header-detail dibuat: header {$result['header']['table']} + detail {$result['detail']['table']} (FK {$result['fkColumn']}).");
 
             if ($row) {
                 $pageId = $this->normalizeRow($row)['ID'];
@@ -212,6 +214,59 @@ final class ApplicationOverview extends Component
         $this->application = $this->normalizeRow($app);
     }
 
+    public function deletePage(string $pageId): void
+    {
+        try {
+            DB::beginTransaction();
+
+            $pageObj = DB::selectOne("
+                SELECT RAWTOHEX(P.OBJECT_ID) AS ID, P.OBJECT_CODE, RAWTOHEX(D.OBJECT_ID) AS DID, D.SOURCE_OBJECT 
+                FROM UI_PAGE P
+                LEFT JOIN DS_DATASET D ON P.DATASET_ID = D.OBJECT_ID
+                WHERE P.OBJECT_ID = HEXTORAW(?)
+            ", [$pageId]);
+
+            if (!$pageObj) throw new \Exception("Halaman tidak ditemukan.");
+            $page = $this->normalizeRow($pageObj);
+
+            // Hapus aturan akses terkait halaman dan field di dalamnya
+            DB::delete("DELETE FROM SEC_ACCESS WHERE OBJECT_TYPE = 'PAGE' AND TARGET_OBJECT_ID = HEXTORAW(?)", [$pageId]);
+            DB::delete("DELETE FROM SEC_ACCESS WHERE OBJECT_TYPE = 'FIELD' AND TARGET_OBJECT_ID IN (SELECT OBJECT_ID FROM UI_FIELD WHERE PAGE_ID = HEXTORAW(?))", [$pageId]);
+
+            // Hapus menu & validasi
+            DB::delete("DELETE FROM APP_MENU WHERE PAGE_ID = HEXTORAW(?)", [$pageId]);
+            DB::delete("DELETE FROM VAL_RULE WHERE FIELD_ID IN (SELECT OBJECT_ID FROM UI_FIELD WHERE PAGE_ID = HEXTORAW(?))", [$pageId]);
+            
+            // Hapus field & page
+            DB::delete("DELETE FROM UI_FIELD WHERE PAGE_ID = HEXTORAW(?)", [$pageId]);
+            DB::delete("DELETE FROM UI_PAGE WHERE OBJECT_ID = HEXTORAW(?)", [$pageId]);
+
+            // Hapus dataset
+            if (!empty($page['DID'])) {
+                DB::delete("DELETE FROM VAL_RULE WHERE DATASET_ID = HEXTORAW(?)", [$page['DID']]);
+                DB::delete("DELETE FROM DS_DATASET WHERE OBJECT_ID = HEXTORAW(?)", [$page['DID']]);
+            }
+
+            DB::commit();
+
+            // Drop tabel fisik setelah commit DB berhasil agar tidak terjadi schema mismatch jika rollback
+            $tableName = $page['SOURCE_OBJECT'] ?? '';
+            if ($tableName && preg_match('/^[A-Z0-9_$#]+$/', $tableName)) {
+                try {
+                    DB::statement("DROP TABLE {$tableName} CASCADE CONSTRAINTS");
+                } catch (\Throwable $e) {
+                    // Ignore drop table error (table might not exist)
+                }
+            }
+
+            session()->flash('success', "Form / Menu beserta tabel fisik berhasil dihapus.");
+            $this->loadPages();
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            session()->flash('error', "Gagal menghapus form: " . $e->getMessage());
+        }
+    }
+
     private function loadPages(): void
     {
         $pages = DB::select("
@@ -221,6 +276,7 @@ final class ApplicationOverview extends Component
                 P.OBJECT_NAME,
                 P.TITLE,
                 P.PAGE_TYPE,
+                RAWTOHEX(D.OBJECT_ID) AS DATASET_ID,
                 D.OBJECT_CODE AS DATASET_CODE,
                 (SELECT COUNT(*) FROM UI_FIELD F WHERE F.PAGE_ID = P.OBJECT_ID) AS FIELD_COUNT
             FROM UI_PAGE P

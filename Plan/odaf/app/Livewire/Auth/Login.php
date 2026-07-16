@@ -38,7 +38,7 @@ final class Login extends Component
 
         session()->regenerate();
 
-        $this->redirectIntended(default: route('odaf.home', ['appCode' => 'ODAF_DEMO']), navigate: true);
+        $this->redirectIntended(default: route('odaf.launcher'), navigate: true);
     }
 
     public function render()

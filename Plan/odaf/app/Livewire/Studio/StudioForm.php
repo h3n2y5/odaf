@@ -53,7 +53,11 @@ final class StudioForm extends Component
                 abort(404, 'Baris tidak ditemukan.');
             }
             foreach ($record as $col => $val) {
-                $this->form[$col] = $val;
+                if (strtoupper($col) === 'PASSWORD_HASH') {
+                    $this->form[$col] = null;
+                } else {
+                    $this->form[$col] = $val;
+                }
             }
         }
     }
@@ -164,7 +168,14 @@ final class StudioForm extends Component
                 continue; // PK RAW auto-generate
             }
             if (array_key_exists($name, $this->form)) {
-                $payload[$name] = $this->form[$name];
+                if (strtoupper($name) === 'PASSWORD_HASH') {
+                    if (empty($this->form[$name])) {
+                        continue;
+                    }
+                    $payload[$name] = \Illuminate\Support\Facades\Hash::make($this->form[$name]);
+                } else {
+                    $payload[$name] = $this->form[$name];
+                }
             }
         }
 

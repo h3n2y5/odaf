@@ -75,7 +75,9 @@ final class OracleWorkflowEngine implements WorkflowEngineInterface
 
         $this->writeHistory($instanceId, null, 'START', null, (string) $initial['code'], $context, null);
         $this->mirrorState($context, $wf, $entityKey, (string) $initial['code']);
-        $this->audit->record($context, 'WORKFLOW_START', $entityKey, [], ['state' => $initial['code']]);
+        
+        $objectName = $this->entityLabel($context, $datasetId, $entityKey);
+        $this->audit->record($context, 'WORKFLOW_START', $entityKey, $objectName, [], ['state' => $initial['code']]);
 
         return $this->stateFromActivity($initial);
     }
@@ -191,10 +193,13 @@ final class OracleWorkflowEngine implements WorkflowEngineInterface
             $comment,
         );
         $this->mirrorState($context, $wf, $entityKey, (string) $target['code']);
+        
+        $objectName = $this->entityLabel($context, $datasetId, $entityKey);
         $this->audit->record(
             $context,
             'WORKFLOW_'.strtoupper((string) $transition['action']),
             $entityKey,
+            $objectName,
             ['state' => $fromCode],
             ['state' => $target['code']],
         );

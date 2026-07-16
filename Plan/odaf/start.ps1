@@ -47,13 +47,50 @@ function Write-Step($msg) { Write-Host "[odaf] $msg" -ForegroundColor Cyan }
 function Write-Ok($msg)   { Write-Host "[odaf] $msg" -ForegroundColor Green }
 function Write-Warn2($msg) { Write-Host "[odaf] $msg" -ForegroundColor Yellow }
 
-# --- 1. Pastikan Docker berjalan -------------------------------------------
+# --- 1. Pastikan Docker berjalan (auto-launch Docker Desktop) ---------------
+$dockerReady = $false
 try {
     docker version --format '{{.Server.Version}}' 1>$null 2>$null
-    if ($LASTEXITCODE -ne 0) { throw }
-} catch {
-    Write-Error "Docker tidak terdeteksi / daemon tidak berjalan. Jalankan Docker Desktop lalu ulangi."
-    exit 1
+    if ($LASTEXITCODE -eq 0) { $dockerReady = $true }
+} catch { }
+
+if (-not $dockerReady) {
+    # Cari executable Docker Desktop
+    $ddPaths = @(
+        "$env:ProgramFiles\Docker\Docker\frontend\Docker Desktop.exe",
+        "$env:ProgramFiles\Docker\Docker\Docker Desktop.exe",
+        "${env:ProgramFiles(x86)}\Docker\Docker\Docker Desktop.exe",
+        "$env:LOCALAPPDATA\Docker\Docker Desktop.exe"
+    )
+    $ddExe = $ddPaths | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+    if (-not $ddExe) {
+        Write-Error "Docker Desktop tidak ditemukan. Install terlebih dahulu dari https://docker.com/products/docker-desktop"
+        exit 1
+    }
+
+    Write-Step "Docker daemon belum jalan, menjalankan Docker Desktop..."
+    Start-Process -FilePath $ddExe
+
+    # Tunggu daemon siap (maks 120 detik)
+    $daemonTimeout = 120
+    $waited = 0
+    while ($waited -lt $daemonTimeout) {
+        Start-Sleep -Seconds 5
+        $waited += 5
+        Write-Host '.' -NoNewline
+        try {
+            docker version --format '{{.Server.Version}}' 1>$null 2>$null
+            if ($LASTEXITCODE -eq 0) { $dockerReady = $true; break }
+        } catch { }
+    }
+    Write-Host ''
+
+    if (-not $dockerReady) {
+        Write-Error "Docker daemon tidak siap dalam $daemonTimeout detik. Cek Docker Desktop secara manual."
+        exit 1
+    }
+    Write-Ok "Docker daemon siap."
 }
 
 # --- 2. Tentukan perintah compose (plugin v2 vs binari lama) ----------------

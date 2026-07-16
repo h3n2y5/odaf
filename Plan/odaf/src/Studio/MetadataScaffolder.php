@@ -142,12 +142,12 @@ final class MetadataScaffolder
             throw new InvalidArgumentException('Nama tabel/menu tidak valid.');
         }
 
-        $table = 'T_'.$entity;
+        $appCode = (string) $options['appCode'];
+        $table = strtoupper($appCode) . '_T_' . $entity;
         if (! preg_match('/^[A-Z][A-Z0-9_$#]{0,120}$/', $table)) {
             throw new InvalidArgumentException("Nama tabel tidak valid: {$table}");
         }
 
-        $appCode = (string) $options['appCode'];
         if ($this->resolveApplicationId($appCode) === null) {
             throw new RuntimeException("Aplikasi tidak ditemukan: {$appCode}");
         }
@@ -172,15 +172,6 @@ final class MetadataScaffolder
         ]);
     }
 
-    /**
-     * Buat pasangan tabel HEADER + DETAIL (master-detail) sekaligus:
-     *  - Tabel header T_<HEADER> (via createTransactionTable).
-     *  - Tabel detail T_<DETAIL> dengan kolom FK RAW(16) -> PK header.
-     *  - Scaffold keduanya, lalu tautkan via UI_PAGE.DETAIL_CONFIG pada header.
-     *
-     * @param  array{headerName: string, detailName: string, appCode: string, detailLabel?: string}  $options
-     * @return array<string, mixed>
-     */
     public function createHeaderDetail(array $options): array
     {
         $headerEntity = self::standardizeEntityName((string) ($options['headerName'] ?? ''));
@@ -190,20 +181,29 @@ final class MetadataScaffolder
         }
 
         $appCode = (string) $options['appCode'];
-        $headerTable = 'T_'.$headerEntity;
-        $detailTable = 'T_'.$detailEntity;
-        $headerPk = $headerEntity.'_ID';
-        $fkColumn = $headerEntity.'_ID'; // FK di detail menunjuk PK header
+        $headerTable = strtoupper($appCode) . '_T_' . $headerEntity;
+        $detailTable = strtoupper($appCode) . '_T_' . $detailEntity;
+        $headerPk = 'ID';
+        $fkColumn = strtoupper((string) ($options['fkColumn'] ?? 'HEADER_ID')); // FK di detail menunjuk PK header
 
         if (! preg_match('/^[A-Z][A-Z0-9_$#]{0,120}$/', $detailTable)) {
             throw new InvalidArgumentException("Nama tabel detail tidak valid: {$detailTable}");
         }
 
         // 1. Header.
-        $header = $this->createTransactionTable([
-            'name' => $options['headerName'],
-            'appCode' => $appCode,
-        ]);
+        $headerDatasetCode = 'DS_' . $headerTable;
+        if ($this->datasetExists($headerDatasetCode)) {
+            $header = [
+                'table' => $headerTable,
+                'pageCode' => 'PAGE_' . $headerTable,
+                'datasetCode' => $headerDatasetCode,
+            ];
+        } else {
+            $header = $this->createTransactionTable([
+                'name' => $options['headerName'],
+                'appCode' => $appCode,
+            ]);
+        }
 
         // 2. Detail (tabel fisik dengan FK) + scaffold.
         if (! $this->tableExistsPhysical($detailTable)) {
@@ -218,13 +218,36 @@ final class MetadataScaffolder
             'force' => false,
         ]);
 
-        // 3. Tautkan: set DETAIL_CONFIG pada page header.
+        // 3. Tautkan: set DETAIL_CONFIG pada page header (append mode).
         $appId = $this->resolveApplicationId($appCode);
-        $config = [[
+        
+        $existingConfigJson = $this->connection->scalar(
+            'SELECT DETAIL_CONFIG FROM UI_PAGE WHERE OBJECT_CODE = ? AND APPLICATION_ID = HEXTORAW(?)',
+            [$header['pageCode'], $appId]
+        );
+        $config = $existingConfigJson ? json_decode((string) $existingConfigJson, true) : [];
+        if (!is_array($config)) {
+            $config = [];
+        }
+
+        $newDetailConfig = [
             'pageCode' => $detail['pageCode'],
             'fkColumn' => $fkColumn,
             'title' => (string) ($options['detailLabel'] ?? ColumnMapper::humanize($detailEntity)),
-        ]];
+        ];
+
+        $found = false;
+        foreach ($config as $k => $c) {
+            if (isset($c['pageCode']) && $c['pageCode'] === $detail['pageCode']) {
+                $config[$k] = $newDetailConfig;
+                $found = true;
+                break;
+            }
+        }
+        if (!$found) {
+            $config[] = $newDetailConfig;
+        }
+
         $this->connection->update(
             'UPDATE UI_PAGE SET DETAIL_CONFIG = ? WHERE OBJECT_CODE = ? AND APPLICATION_ID = HEXTORAW(?)',
             [(string) json_encode($config), $header['pageCode'], $appId],
@@ -246,11 +269,124 @@ final class MetadataScaffolder
     }
 
     /**
+     * Buat pasangan tabel HEADER + MULTIPLE DETAIL (master-detail) sekaligus:
+     * Fitur tab untuk menampilkan detail dari grup/table yang berbeda
+     * (contoh: tab 1 data pajak, tab 2 data pembayaran).
+     *
+     * @param  array{
+     *   headerName: string,
+     *   details: array<int, array{detailName: string, detailLabel?: string, fkColumn?: string}>,
+     *   appCode: string
+     * }  $options
+     * @return array<string, mixed>
+     */
+    public function createHeaderDetails(array $options): array
+    {
+        $headerEntity = self::standardizeEntityName((string) ($options['headerName'] ?? ''));
+        if ($headerEntity === '') {
+            throw new InvalidArgumentException('Nama header tidak valid.');
+        }
+
+        $appCode = (string) $options['appCode'];
+        $headerTable = strtoupper($appCode) . '_T_' . $headerEntity;
+        $headerPk = 'ID';
+
+        $headerDatasetCode = 'DS_' . $headerTable;
+        if ($this->datasetExists($headerDatasetCode)) {
+            $header = [
+                'table' => $headerTable,
+                'pageCode' => 'PAGE_' . $headerTable,
+                'datasetCode' => $headerDatasetCode,
+            ];
+        } else {
+            $header = $this->createTransactionTable([
+                'name' => $options['headerName'],
+                'appCode' => $appCode,
+            ]);
+        }
+
+        $appId = $this->resolveApplicationId($appCode);
+        $existingConfigJson = $this->connection->scalar(
+            'SELECT DETAIL_CONFIG FROM UI_PAGE WHERE OBJECT_CODE = ? AND APPLICATION_ID = HEXTORAW(?)',
+            [$header['pageCode'], $appId]
+        );
+        $config = $existingConfigJson ? json_decode((string) $existingConfigJson, true) : [];
+        if (!is_array($config)) {
+            $config = [];
+        }
+
+        $detailResults = [];
+        $detailsInput = $options['details'] ?? [];
+
+        foreach ($detailsInput as $detInput) {
+            $detailEntity = self::standardizeEntityName((string) ($detInput['detailName'] ?? ''));
+            if ($detailEntity === '') {
+                continue;
+            }
+
+            $detailTable = strtoupper($appCode) . '_T_' . $detailEntity;
+            $fkColumn = strtoupper((string) ($detInput['fkColumn'] ?? 'HEADER_ID'));
+
+            if (! preg_match('/^[A-Z][A-Z0-9_$#]{0,120}$/', $detailTable)) {
+                throw new InvalidArgumentException("Nama tabel detail tidak valid: {$detailTable}");
+            }
+
+            if (! $this->tableExistsPhysical($detailTable)) {
+                $this->createDetailTable($detailTable, $detailEntity, $fkColumn, $headerTable, $headerPk);
+            }
+            $detail = $this->scaffold([
+                'table' => $detailTable,
+                'appCode' => $appCode,
+                'moduleCode' => 'TRANSAKSI',
+                'moduleName' => 'Transaksi',
+                'label' => (string) ($detInput['detailLabel'] ?? ColumnMapper::humanize($detailEntity)),
+                'force' => false,
+            ]);
+
+            $detailResults[] = $detail;
+
+            $newDetailConfig = [
+                'pageCode' => $detail['pageCode'],
+                'fkColumn' => $fkColumn,
+                'title' => (string) ($detInput['detailLabel'] ?? ColumnMapper::humanize($detailEntity)),
+            ];
+
+            $found = false;
+            foreach ($config as $k => $c) {
+                if (isset($c['pageCode']) && $c['pageCode'] === $detail['pageCode']) {
+                    $config[$k] = $newDetailConfig;
+                    $found = true;
+                    break;
+                }
+            }
+            if (!$found) {
+                $config[] = $newDetailConfig;
+            }
+
+            $this->connection->delete(
+                'DELETE FROM APP_MENU WHERE PAGE_ID = (SELECT OBJECT_ID FROM UI_PAGE WHERE OBJECT_CODE = ? AND APPLICATION_ID = HEXTORAW(?))',
+                [$detail['pageCode'], $appId],
+            );
+        }
+
+        $this->connection->update(
+            'UPDATE UI_PAGE SET DETAIL_CONFIG = ? WHERE OBJECT_CODE = ? AND APPLICATION_ID = HEXTORAW(?)',
+            [(string) json_encode($config), $header['pageCode'], $appId],
+        );
+
+        return [
+            'header' => $header,
+            'details' => $detailResults,
+            'headerPageCode' => $header['pageCode'],
+        ];
+    }
+
+    /**
      * DDL tabel detail: PK + kolom FK RAW(16) ke header + kolom nama + STATUS + audit.
      */
     private function createDetailTable(string $table, string $entity, string $fkColumn, string $headerTable, string $headerPk): void
     {
-        $pk = $entity.'_ID';
+        $pk = 'ID';
         $nameCol = $entity.'_NAME';
         // Nama constraint FK dipangkas agar aman.
         $fkName = 'FK_'.substr($table, 0, 24).'_HDR';
@@ -318,7 +454,7 @@ final class MetadataScaffolder
      */
     private function createPhysicalTable(string $table, string $entity): void
     {
-        $pk = $entity.'_ID';
+        $pk = 'ID';
         $nameCol = $entity.'_NAME';
 
         $ddl = "CREATE TABLE {$table} (

@@ -18,6 +18,8 @@ interface SecurityEngineInterface
     /** Tingkat akses berbutir-halus (SEC_ACCESS). */
     public const LEVEL_FULL = 'FULL';
 
+    public const LEVEL_APPEND = 'APPEND';
+
     public const LEVEL_READONLY = 'READONLY';
 
     public const LEVEL_MASKED = 'MASKED';

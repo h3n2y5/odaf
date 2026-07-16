@@ -12,6 +12,9 @@ use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Auth\Events\Login;
+use Illuminate\Auth\Events\Logout;
 use Illuminate\Support\ServiceProvider;
 use Odaf\Compiler\Contracts\MetadataCompilerInterface;
 use Odaf\Compiler\MetadataCompiler;
@@ -200,6 +203,40 @@ final class OdafServiceProvider extends ServiceProvider
                 SetUserPasswordCommand::class,
                 ScaffoldTableCommand::class,
             ]);
+        }
+        
+        Event::listen(function (Login $event) {
+            $this->auditAuth('USER_LOGIN', $event->user);
+        });
+
+        Event::listen(function (Logout $event) {
+            $this->auditAuth('USER_LOGOUT', $event->user);
+        });
+    }
+
+    private function auditAuth(string $eventType, mixed $user): void
+    {
+        try {
+            $engine = $this->app->make(AuditEngineInterface::class);
+            $userId = $user->getAuthIdentifier();
+            // If the user is an array or object, try to get a name
+            $username = is_object($user) ? ($user->username ?? $user->email ?? $userId) : $userId;
+            
+            $context = new class($userId) implements \Odaf\Runtime\Contracts\ExecutionContextInterface {
+                public function __construct(private ?string $u) {}
+                public function userId(): ?string { return $this->u; }
+                public function applicationId(): string { return ''; }
+                public function locale(): string { return 'id'; }
+                public function roleIds(): array { return []; }
+                public function attributes(): array { return ['datasetCode' => 'SEC_USER']; }
+            };
+            
+            $ip = function_exists('request') && request() ? request()->ip() : null;
+            $agent = function_exists('request') && request() ? request()->userAgent() : null;
+            
+            $engine->record($context, $eventType, (string)$userId, (string)$username, [], ['ip' => $ip, 'agent' => $agent]);
+        } catch (\Throwable $e) {
+            // Ignore audit errors
         }
     }
 

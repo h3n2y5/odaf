@@ -65,16 +65,9 @@
                 Applications
             </a>
 
-            <a href="#"
-               class="flex items-center gap-3 px-5 py-2 text-sm text-slate-400 cursor-not-allowed">
-                <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z"></path>
-                </svg>
-                Workflows
-                <span class="ml-auto text-xs bg-slate-700 px-2 py-0.5 rounded">Soon</span>
-            </a>
 
-            <a href="{{ route('studio.designer.lov.new') }}"
+
+            <a href="{{ route('studio.designer.lov.list') }}"
                class="flex items-center gap-3 px-5 py-2 text-sm hover:bg-slate-800 transition-colors {{ request()->routeIs('studio.designer.lov*') ? 'bg-slate-800 text-white' : 'text-slate-300' }}">
                 <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path>
@@ -82,17 +75,39 @@
                 LOVs
             </a>
 
-            {{-- Data Manager Section --}}
+            <a href="{{ route('studio.designer.access') }}"
+               class="flex items-center gap-3 px-5 py-2 text-sm hover:bg-slate-800 transition-colors {{ request()->routeIs('studio.designer.access') ? 'bg-slate-800 text-white' : 'text-slate-300' }}">
+                <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+                </svg>
+                Access Control
+            </a>
+
+            <a href="{{ route('studio.designer.roles-users') }}"
+               class="flex items-center gap-3 px-5 py-2 text-sm hover:bg-slate-800 transition-colors {{ request()->routeIs('studio.designer.roles-users') ? 'bg-slate-800 text-white' : 'text-slate-300' }}">
+                <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path>
+                </svg>
+                Roles & Users
+            </a>
             <div class="px-3 mt-6 mb-2">
                 <div class="text-xs uppercase tracking-widest text-slate-500 px-2 py-1">Data Manager</div>
             </div>
 
             <a href="{{ route('studio.home') }}"
-               class="flex items-center gap-3 px-5 py-2 text-sm hover:bg-slate-800 transition-colors {{ request()->routeIs('studio.home') ? 'bg-slate-800 text-white' : 'text-slate-300' }}">
+               class="flex items-center gap-3 px-5 py-2 text-sm hover:bg-slate-800 transition-colors {{ request()->routeIs('studio.home') || request()->routeIs('studio.grid') || request()->routeIs('studio.form') ? 'bg-slate-800 text-white' : 'text-slate-300' }}">
                 <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"></path>
                 </svg>
                 All Tables
+            </a>
+
+            <a href="{{ route('studio.sql') }}"
+               class="flex items-center gap-3 px-5 py-2 text-sm hover:bg-slate-800 transition-colors {{ request()->routeIs('studio.sql') ? 'bg-slate-800 text-white' : 'text-slate-300' }}">
+                <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path>
+                </svg>
+                SQL Runner
             </a>
         </nav>
 
@@ -135,7 +150,7 @@
             <div class="flex items-center gap-4">
                 @auth
                     <a href="{{ route('manual') }}" class="text-sm text-slate-500 hover:text-indigo-600">Manual</a>
-                    <a href="{{ route('odaf.home', ['appCode' => 'ODAF_DEMO']) }}" class="text-sm text-slate-500 hover:text-indigo-600">Runtime</a>
+                    <a href="{{ route('odaf.launcher') }}" class="text-sm text-slate-500 hover:text-indigo-600">Runtime</a>
                     @livewire(\App\Livewire\Runtime\NotificationBell::class)
                     <span class="text-sm text-slate-500">
                         {{ auth()->user()->name ?? auth()->user()->username }}

@@ -10,8 +10,10 @@ use Illuminate\Support\Facades\DB;
  * Repositori kontrol akses berbutir-halus (tabel SEC_ACCESS).
  *
  * Menyediakan pembuatan tabel idempotent, daftar role/aplikasi/halaman/field,
- * pembacaan aturan akses per role, dan penyimpanan aturan. Level akses:
- * FULL | READONLY | MASKED | NONE (kosong/DEFAULT = tanpa aturan).
+ * pembacaan aturan akses per role, penyimpanan aturan, dan pengelolaan
+ * hierarki role (PARENT_ROLE_ID) serta masa berlaku (VALID_FROM/VALID_TO).
+ *
+ * Level akses: FULL | READONLY | MASKED | NONE (kosong/DEFAULT = tanpa aturan).
  */
 final class AccessControlRepository
 {
@@ -42,6 +44,8 @@ final class AccessControlRepository
                         OBJECT_TYPE      VARCHAR2(20 CHAR)        NOT NULL,
                         TARGET_OBJECT_ID RAW(16)                  NOT NULL,
                         ACCESS_LEVEL     VARCHAR2(20 CHAR)        NOT NULL,
+                        VALID_FROM       DATE,
+                        VALID_TO         DATE,
                         VERSION_NO       NUMBER(10)               DEFAULT 1 NOT NULL,
                         CREATED_AT       TIMESTAMP WITH TIME ZONE DEFAULT SYSTIMESTAMP NOT NULL,
                         UPDATED_AT       TIMESTAMP WITH TIME ZONE DEFAULT SYSTIMESTAMP NOT NULL,
@@ -60,13 +64,43 @@ final class AccessControlRepository
         SQL);
     }
 
+    // ---- Lookup data -------------------------------------------------------
+
     /** @return array<int, array<string, mixed>> */
     public function roles(): array
     {
+        $parentCol = $this->hasColumn('SEC_ROLE', 'PARENT_ROLE_ID')
+            ? ', RAWTOHEX(PARENT_ROLE_ID) AS PARENT_ROLE_ID'
+            : ", NULL AS PARENT_ROLE_ID";
+
         return $this->rows(DB::select(
             "SELECT RAWTOHEX(OBJECT_ID) AS ID, OBJECT_CODE, OBJECT_NAME
+                    {$parentCol}
                FROM SEC_ROLE ORDER BY OBJECT_NAME"
         ));
+    }
+
+    /** Roles filtered by application (+ ADMIN global role). */
+    public function rolesForApp(string $appId): array
+    {
+        $parentCol = $this->hasColumn('SEC_ROLE', 'PARENT_ROLE_ID')
+            ? ', RAWTOHEX(PARENT_ROLE_ID) AS PARENT_ROLE_ID'
+            : ", NULL AS PARENT_ROLE_ID";
+
+        $hasAppId = $this->hasColumn('SEC_ROLE', 'APPLICATION_ID');
+
+        if ($hasAppId && $appId !== '') {
+            return $this->rows(DB::select(
+                "SELECT RAWTOHEX(OBJECT_ID) AS ID, OBJECT_CODE, OBJECT_NAME
+                        {$parentCol}
+                   FROM SEC_ROLE
+                  WHERE APPLICATION_ID = HEXTORAW(?) OR OBJECT_CODE = 'ADMIN'
+                  ORDER BY OBJECT_NAME",
+                [$appId]
+            ));
+        }
+
+        return $this->roles();
     }
 
     /** @return array<int, array<string, mixed>> */
@@ -107,10 +141,13 @@ final class AccessControlRepository
         return $pages;
     }
 
+    // ---- Aturan akses per role ----------------------------------------------
+
     /**
      * Aturan akses milik sebuah role, dipetakan "TYPE:TARGET_ID(upper)" => LEVEL.
+     * Termasuk VALID_FROM dan VALID_TO sebagai metadata tambahan.
      *
-     * @return array<string, string>
+     * @return array<string, array<string, mixed>>
      */
     public function rulesForRole(string $roleId): array
     {
@@ -118,15 +155,26 @@ final class AccessControlRepository
             return [];
         }
 
+        $validityCols = $this->hasColumn('SEC_ACCESS', 'VALID_FROM')
+            ? ", TO_CHAR(VALID_FROM, 'YYYY-MM-DD') AS VALID_FROM,
+                TO_CHAR(VALID_TO, 'YYYY-MM-DD') AS VALID_TO"
+            : ", NULL AS VALID_FROM, NULL AS VALID_TO";
+
         $rows = $this->rows(DB::select(
             "SELECT OBJECT_TYPE, RAWTOHEX(TARGET_OBJECT_ID) AS TID, ACCESS_LEVEL
+                    {$validityCols}
                FROM SEC_ACCESS WHERE ROLE_ID = HEXTORAW(?)",
             [$roleId]
         ));
 
         $map = [];
         foreach ($rows as $r) {
-            $map[strtoupper((string) $r['OBJECT_TYPE']).':'.strtoupper((string) $r['TID'])] = (string) $r['ACCESS_LEVEL'];
+            $key = strtoupper((string) $r['OBJECT_TYPE']).':'.strtoupper((string) $r['TID']);
+            $map[$key] = [
+                'level' => (string) $r['ACCESS_LEVEL'],
+                'validFrom' => $r['VALID_FROM'] ?? null,
+                'validTo' => $r['VALID_TO'] ?? null,
+            ];
         }
 
         return $map;
@@ -136,8 +184,15 @@ final class AccessControlRepository
      * Simpan satu aturan akses. Level kosong / 'DEFAULT' menghapus aturan
      * (objek kembali memakai kebijakan default).
      */
-    public function setRule(string $roleId, string $objectType, string $targetId, string $level, ?string $userId): void
-    {
+    public function setRule(
+        string $roleId,
+        string $objectType,
+        string $targetId,
+        string $level,
+        ?string $userId,
+        ?string $validFrom = null,
+        ?string $validTo = null,
+    ): void {
         $this->ensureInstalled();
 
         $objectType = strtoupper($objectType);
@@ -153,11 +208,138 @@ final class AccessControlRepository
             return; // DEFAULT: tanpa aturan
         }
 
-        DB::insert(
-            "INSERT INTO SEC_ACCESS (OBJECT_ID, ROLE_ID, OBJECT_TYPE, TARGET_OBJECT_ID, ACCESS_LEVEL, CREATED_BY)
-             VALUES (SYS_GUID(), HEXTORAW(?), ?, HEXTORAW(?), ?, CASE WHEN ? IS NULL THEN NULL ELSE HEXTORAW(?) END)",
-            [$roleId, $objectType, $targetId, $level, $userId, $userId]
+        $hasValidity = $this->hasColumn('SEC_ACCESS', 'VALID_FROM');
+
+        if ($hasValidity) {
+            DB::insert(
+                "INSERT INTO SEC_ACCESS (OBJECT_ID, ROLE_ID, OBJECT_TYPE, TARGET_OBJECT_ID, ACCESS_LEVEL,
+                        VALID_FROM, VALID_TO, CREATED_BY)
+                 VALUES (SYS_GUID(), HEXTORAW(?), ?, HEXTORAW(?), ?,
+                        CASE WHEN ? IS NULL THEN NULL ELSE TO_DATE(?, 'YYYY-MM-DD') END,
+                        CASE WHEN ? IS NULL THEN NULL ELSE TO_DATE(?, 'YYYY-MM-DD') END,
+                        CASE WHEN ? IS NULL THEN NULL ELSE HEXTORAW(?) END)",
+                [$roleId, $objectType, $targetId, $level,
+                 $validFrom, $validFrom, $validTo, $validTo,
+                 $userId, $userId]
+            );
+        } else {
+            DB::insert(
+                "INSERT INTO SEC_ACCESS (OBJECT_ID, ROLE_ID, OBJECT_TYPE, TARGET_OBJECT_ID, ACCESS_LEVEL, CREATED_BY)
+                 VALUES (SYS_GUID(), HEXTORAW(?), ?, HEXTORAW(?), ?, CASE WHEN ? IS NULL THEN NULL ELSE HEXTORAW(?) END)",
+                [$roleId, $objectType, $targetId, $level, $userId, $userId]
+            );
+        }
+    }
+
+    // ---- Hierarki role -----------------------------------------------------
+
+    /**
+     * Set parent role (hierarki). Null = hapus parent (jadi root).
+     */
+    public function setRoleParent(string $roleId, ?string $parentRoleId): void
+    {
+        if (! $this->hasColumn('SEC_ROLE', 'PARENT_ROLE_ID')) {
+            return;
+        }
+
+        // Cegah siklus: parent tidak boleh merupakan descendant dari role ini.
+        if ($parentRoleId !== null && $this->wouldCauseCycle($roleId, $parentRoleId)) {
+            throw new \RuntimeException('Hierarki sirkular terdeteksi: role target adalah turunan dari role ini.');
+        }
+
+        if ($parentRoleId === null || $parentRoleId === '') {
+            DB::update(
+                'UPDATE SEC_ROLE SET PARENT_ROLE_ID = NULL, UPDATED_AT = SYSTIMESTAMP WHERE OBJECT_ID = HEXTORAW(?)',
+                [$roleId]
+            );
+        } else {
+            DB::update(
+                'UPDATE SEC_ROLE SET PARENT_ROLE_ID = HEXTORAW(?), UPDATED_AT = SYSTIMESTAMP WHERE OBJECT_ID = HEXTORAW(?)',
+                [$parentRoleId, $roleId]
+            );
+        }
+    }
+
+    /**
+     * Cek apakah menghubungkan $roleId -> $parentId akan menyebabkan siklus.
+     */
+    private function wouldCauseCycle(string $roleId, string $parentId): bool
+    {
+        // Telusuri ancestor dari $parentId; jika $roleId ditemukan = siklus.
+        $rows = $this->rows(DB::select(
+            "SELECT RAWTOHEX(OBJECT_ID) AS RID
+               FROM SEC_ROLE
+              START WITH OBJECT_ID = HEXTORAW(?)
+            CONNECT BY NOCYCLE OBJECT_ID = PRIOR PARENT_ROLE_ID",
+            [$parentId]
+        ));
+
+        $ancestors = array_map(fn ($r) => strtoupper((string) $r['RID']), $rows);
+
+        return in_array(strtoupper($roleId), $ancestors, true);
+    }
+
+    // ---- User-Role masa berlaku -------------------------------------------
+
+    /**
+     * Daftar role sebuah user beserta masa berlaku.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function userRolesWithValidity(string $userId): array
+    {
+        $validityCols = $this->hasColumn('SEC_USER_ROLE', 'VALID_FROM')
+            ? ", TO_CHAR(ur.VALID_FROM, 'YYYY-MM-DD') AS VALID_FROM,
+                TO_CHAR(ur.VALID_TO, 'YYYY-MM-DD') AS VALID_TO"
+            : ", NULL AS VALID_FROM, NULL AS VALID_TO";
+
+        return $this->rows(DB::select(
+            "SELECT RAWTOHEX(r.OBJECT_ID) AS ROLE_ID, r.OBJECT_CODE, r.OBJECT_NAME
+                    {$validityCols}
+               FROM SEC_USER_ROLE ur
+               JOIN SEC_ROLE r ON r.OBJECT_ID = ur.ROLE_ID
+              WHERE ur.USER_ID = HEXTORAW(?)
+              ORDER BY r.OBJECT_NAME",
+            [$userId]
+        ));
+    }
+
+    /**
+     * Set masa berlaku keanggotaan role pada user.
+     */
+    public function setUserRoleValidity(string $userId, string $roleId, ?string $validFrom, ?string $validTo): void
+    {
+        if (! $this->hasColumn('SEC_USER_ROLE', 'VALID_FROM')) {
+            return;
+        }
+
+        DB::update(
+            "UPDATE SEC_USER_ROLE
+                SET VALID_FROM = CASE WHEN ? IS NULL THEN NULL ELSE TO_DATE(?, 'YYYY-MM-DD') END,
+                    VALID_TO   = CASE WHEN ? IS NULL THEN NULL ELSE TO_DATE(?, 'YYYY-MM-DD') END
+              WHERE USER_ID = HEXTORAW(?) AND ROLE_ID = HEXTORAW(?)",
+            [$validFrom, $validFrom, $validTo, $validTo, $userId, $roleId]
         );
+    }
+
+    // ---- Internal helpers --------------------------------------------------
+
+    /** @var array<string, bool> */
+    private array $columnCache = [];
+
+    private function hasColumn(string $table, string $column): bool
+    {
+        $key = "{$table}.{$column}";
+        if (isset($this->columnCache[$key])) {
+            return $this->columnCache[$key];
+        }
+
+        $count = (int) DB::scalar(
+            'SELECT COUNT(*) FROM USER_TAB_COLUMNS WHERE TABLE_NAME = ? AND COLUMN_NAME = ?',
+            [strtoupper($table), strtoupper($column)]
+        );
+
+        return $this->columnCache[$key] = ($count > 0);
     }
 
     /**

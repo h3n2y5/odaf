@@ -127,6 +127,8 @@ final class TableDataManager
 
         $this->execWrite(fn () => $this->connection->insert($sql, $bindings));
 
+        $this->audit($schema['table'], 'DATA_CREATE', $key, $this->guessObjectName($data), [], $data, $userId);
+
         return $key;
     }
 
@@ -192,7 +194,10 @@ final class TableDataManager
         $sql = "INSERT INTO {$schema['table']} (".implode(', ', $cols).') '
             .'SELECT '.implode(', ', $selects)." FROM {$schema['table']} WHERE {$where}";
 
+        $oldData = $this->find($table, $key) ?? [];
         $this->execWrite(fn () => $this->connection->insert($sql, [...$bind, ...$whereBind]));
+
+        $this->audit($schema['table'], 'DATA_CLONE', [$pkCol => $newKey], $this->guessObjectName($oldData) . ' (Clone)', $oldData, [], $userId);
 
         return [$pkCol => $newKey];
     }
@@ -238,6 +243,8 @@ final class TableDataManager
 
         $values = $this->writableValues($data, $columns, isUpdate: true);
         $this->applyAudit($values, $columns, $userId, isUpdate: true);
+        
+        $oldData = $this->find($table, $key) ?? [];
 
         $setParts = [];
         $bindings = [];
@@ -264,6 +271,8 @@ final class TableDataManager
         if ($affected === 0) {
             throw new RuntimeException('Baris tidak ditemukan untuk diperbarui.');
         }
+        
+        $this->audit($schema['table'], 'DATA_UPDATE', $key, $this->guessObjectName(array_merge($oldData, $data)), $oldData, $data, $userId);
     }
 
     /**
@@ -275,8 +284,12 @@ final class TableDataManager
     {
         $schema = $this->schema($table);
         [$where, $bindings] = $this->keyPredicate($schema, $key);
+        
+        $oldData = $this->find($table, $key) ?? [];
 
         $this->execWrite(fn () => $this->connection->delete("DELETE FROM {$schema['table']} WHERE {$where}", $bindings));
+        
+        $this->audit($schema['table'], 'DATA_DELETE', $key, $this->guessObjectName($oldData), $oldData, [], null);
     }
 
     // ---- Key encoding -------------------------------------------------------
@@ -648,5 +661,39 @@ final class TableDataManager
         $line = strtok($text, "\n");
 
         return $line === false ? $text : $line;
+    }
+
+    private function guessObjectName(array $row): ?string
+    {
+        $candidates = ['OBJECT_NAME', 'NAME', 'USERNAME', 'CUSTOMER_NAME', 'TITLE', 'CODE', 'EVENT_CODE', 'DATASET_CODE'];
+        foreach ($candidates as $c) {
+            // Cek case-insensitive
+            $val = $row[$c] ?? $row[strtolower($c)] ?? null;
+            if ($val !== null && is_scalar($val)) {
+                return (string) $val;
+            }
+        }
+        return null;
+    }
+
+    private function audit(string $table, string $eventType, array $key, ?string $objectName, array $before, array $after, ?string $userId): void
+    {
+        try {
+            $engine = app(\Odaf\Engine\Audit\Contracts\AuditEngineInterface::class);
+            $context = new class($table, $userId) implements \Odaf\Runtime\Contracts\ExecutionContextInterface {
+                public function __construct(private string $t, private ?string $u) {}
+                public function userId(): ?string { return $this->u; }
+                public function applicationId(): string { return ''; }
+                public function locale(): string { return 'id'; }
+                public function roleIds(): array { return []; }
+                public function attributes(): array { return ['datasetCode' => $this->t]; }
+            };
+            
+            $objectId = implode('-', $key);
+            
+            $engine->record($context, $eventType, $objectId, $objectName, $before, $after);
+        } catch (\Throwable $e) {
+            // Ignore audit errors so it doesn't fail the business operation
+        }
     }
 }

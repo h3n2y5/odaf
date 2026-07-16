@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS AUD_EVENT (
     EVENT_ID       RAW(16)                    DEFAULT SYS_GUID() NOT NULL,
     EVENT_TYPE     VARCHAR2(50 CHAR)          NOT NULL,   -- DATA_CREATE|DATA_UPDATE|DATA_DELETE|LOGIN|DEPLOY|...
     OBJECT_ID      RAW(16),                               -- objek yang terpengaruh
+    OBJECT_NAME    VARCHAR2(255 CHAR),                    -- Snapshot nama objek saat event terjadi
     DATASET_CODE   VARCHAR2(100 CHAR),
     USER_ID        RAW(16),
     APPLICATION_ID RAW(16),

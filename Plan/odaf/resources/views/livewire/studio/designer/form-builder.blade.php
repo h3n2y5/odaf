@@ -201,6 +201,44 @@
                                 </div>
                             @endif
                         </div>
+                        {{-- Tabs Details --}}
+                        <div class="px-6 py-4 border-t border-slate-200 bg-white">
+                            <div class="border-b border-slate-200 flex justify-between items-center">
+                                <nav class="-mb-px flex space-x-6" aria-label="Tabs">
+                                    @if (!empty($page['DETAIL_CONFIG_ARRAY']))
+                                        @foreach ($page['DETAIL_CONFIG_ARRAY'] as $index => $detail)
+                                            @if(!empty($detail['pageId']))
+                                                <a href="/studio/designer/form/{{ $detail['pageId'] }}" wire:navigate class="whitespace-nowrap pb-3 px-1 border-b-2 font-medium text-sm {{ $index === 0 ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300' }}">
+                                                    {{ $detail['title'] ?? $detail['pageCode'] }}
+                                                </a>
+                                            @else
+                                                <div class="whitespace-nowrap pb-3 px-1 border-b-2 font-medium text-sm {{ $index === 0 ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-slate-500' }}">
+                                                    {{ $detail['title'] ?? $detail['pageCode'] }}
+                                                </div>
+                                            @endif
+                                        @endforeach
+                                    @else
+                                        <div class="whitespace-nowrap pb-3 px-1 border-b-2 border-transparent font-medium text-sm text-slate-400">
+                                            No detail tabs
+                                        </div>
+                                    @endif
+                                </nav>
+                                <button type="button" wire:click="openAddTabModal" class="mb-2 inline-flex items-center gap-1 text-sm font-medium text-indigo-600 hover:text-indigo-700">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                                    </svg>
+                                    Add Tab
+                                </button>
+                            </div>
+                            @if (!empty($page['DETAIL_CONFIG_ARRAY']))
+                                <div class="py-8 text-center border border-dashed border-slate-200 rounded-b-lg mt-4 bg-slate-50">
+                                    <svg class="mx-auto h-8 w-8 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"></path>
+                                    </svg>
+                                    <p class="mt-2 text-sm text-slate-500">Detail grid content ({{ $page['DETAIL_CONFIG_ARRAY'][0]['title'] ?? 'Tab 1' }}) will be rendered here.</p>
+                                </div>
+                            @endif
+                        </div>
 
                         {{-- Form Footer --}}
                         <div class="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
@@ -426,6 +464,55 @@
                             class="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-60">
                         <span wire:loading.remove wire:target="addField">Tambah Field</span>
                         <span wire:loading wire:target="addField">Menambahkan...</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    {{-- Modal Tambah Tab --}}
+    @if ($showAddTabModal)
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm transition-opacity" wire:transition.opacity>
+            <div class="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden" @click.outside="$wire.closeAddTabModal()">
+                <div class="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
+                    <h3 class="text-lg font-semibold text-slate-900">Tambah Tab Detail</h3>
+                    <button wire:click="closeAddTabModal" class="text-slate-400 hover:text-slate-600 transition-colors">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="p-6 space-y-5">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Judul Tab</label>
+                        <input type="text" wire:model="newTab.title" placeholder="Cth: Data Pembayaran" class="w-full rounded-lg border-slate-300 focus:ring-indigo-500 focus:border-indigo-500">
+                        @error('newTab.title') <span class="text-xs text-rose-500 mt-1 block">{{ $message }}</span> @enderror
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Suffix Nama Tabel</label>
+                        <div class="flex rounded-lg shadow-sm">
+                            <span class="inline-flex items-center rounded-l-lg border border-r-0 border-slate-300 bg-slate-50 px-3 text-sm text-slate-500">
+                                {{ $page['TABLE_NAME'] ?? 'T_HEADER' }}_
+                            </span>
+                            <input type="text" wire:model="newTab.suffix" placeholder="Cth: ADDRESS" class="block w-full min-w-0 flex-1 rounded-none rounded-r-lg border-slate-300 focus:border-indigo-500 focus:ring-indigo-500 uppercase font-mono">
+                        </div>
+                        @error('newTab.suffix') <span class="text-xs text-rose-500 mt-1 block">{{ $message }}</span> @enderror
+                        <p class="text-xs text-slate-500 mt-1">Tabel detail fisik (beserta form-nya) akan otomatis dibuat dan ditautkan ke header ini.</p>
+                    </div>
+                </div>
+
+                <div class="px-6 py-4 border-t border-slate-200 flex justify-end gap-2 bg-slate-50">
+                    <button wire:click="closeAddTabModal"
+                            class="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50">
+                        Batal
+                    </button>
+                    <button wire:click="addTab"
+                            wire:loading.attr="disabled" wire:target="addTab"
+                            class="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-60">
+                        <span wire:loading.remove wire:target="addTab">Tambah Tab</span>
+                        <span wire:loading wire:target="addTab">Menyimpan...</span>
                     </button>
                 </div>
             </div>

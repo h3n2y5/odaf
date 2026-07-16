@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
+use Odaf\Studio\MetadataScaffolder;
 
 /**
  * Form Builder - Visual designer untuk UI_PAGE dan UI_FIELD.
@@ -64,6 +65,15 @@ final class FormBuilder extends Component
         'field_type' => 'TEXT',
         'length' => 255,
         'add_column' => true,
+    ];
+
+    /** Dialog tambah tab detail. */
+    public bool $showAddTabModal = false;
+
+    /** @var array<string, mixed> */
+    public array $newTab = [
+        'title' => '',
+        'suffix' => '',
     ];
 
     public function mount(StudioAccess $access, string $pageId): void
@@ -125,6 +135,7 @@ final class FormBuilder extends Component
                 P.TITLE,
                 P.DESCRIPTION,
                 P.PAGE_TYPE,
+                P.DETAIL_CONFIG,
                 RAWTOHEX(P.DATASET_ID) AS DATASET_ID,
                 D.OBJECT_CODE AS DATASET_CODE,
                 D.SOURCE_TYPE,
@@ -142,7 +153,31 @@ final class FormBuilder extends Component
             abort(404, 'Page not found');
         }
 
-        $this->page = $this->normalizeRow($page);
+        $normalized = $this->normalizeRow($page);
+        
+        $detailConfig = [];
+        if (!empty($normalized['DETAIL_CONFIG'])) {
+            $decoded = json_decode((string) $normalized['DETAIL_CONFIG'], true);
+            if (is_array($decoded)) {
+                $detailConfig = $decoded;
+
+                $pageCodes = array_column($detailConfig, 'pageCode');
+                if (!empty($pageCodes)) {
+                    $placeholders = implode(',', array_fill(0, count($pageCodes), '?'));
+                    $ids = $this->normalizeRows(DB::select("SELECT OBJECT_CODE, RAWTOHEX(OBJECT_ID) AS ID FROM UI_PAGE WHERE OBJECT_CODE IN ($placeholders)", $pageCodes));
+                    $idMap = [];
+                    foreach ($ids as $r) {
+                        $idMap[$r['OBJECT_CODE']] = $r['ID'];
+                    }
+                    foreach ($detailConfig as &$c) {
+                        $c['pageId'] = $idMap[$c['pageCode']] ?? null;
+                    }
+                }
+            }
+        }
+        $normalized['DETAIL_CONFIG_ARRAY'] = $detailConfig;
+
+        $this->page = $normalized;
     }
 
     private function loadFields(): void
@@ -176,7 +211,15 @@ final class FormBuilder extends Component
 
     private function loadAvailableLovs(): void
     {
-        // Tampilkan semua LOV (DS_LOV bersifat global, tidak terikat aplikasi).
+        // Pastikan kolom APPLICATION_ID ada di DS_LOV (update skema on the fly)
+        try {
+            DB::statement("ALTER TABLE DS_LOV ADD (APPLICATION_ID RAW(16))");
+            DB::statement("ALTER TABLE DS_LOV ADD CONSTRAINT FK_DS_LOV_APP FOREIGN KEY (APPLICATION_ID) REFERENCES APP_APPLICATION(OBJECT_ID) ON DELETE CASCADE");
+        } catch (\Throwable $e) {
+            // Abaikan jika kolom atau constraint sudah ada
+        }
+
+        // Tampilkan LOV yang global (APPLICATION_ID IS NULL) atau milik aplikasi ini.
         $lovs = DB::select("
             SELECT
                 RAWTOHEX(OBJECT_ID) AS ID,
@@ -184,8 +227,9 @@ final class FormBuilder extends Component
                 OBJECT_NAME,
                 LOV_TYPE
             FROM DS_LOV
+            WHERE APPLICATION_ID = HEXTORAW(?) OR APPLICATION_ID IS NULL
             ORDER BY OBJECT_NAME
-        ");
+        ", [$this->page['APPLICATION_ID'] ?? null]);
 
         $this->availableLovs = $this->normalizeRows($lovs);
     }
@@ -342,6 +386,63 @@ final class FormBuilder extends Component
     public function closeAddModal(): void
     {
         $this->showAddModal = false;
+        $this->reset(['newField']);
+    }
+
+    public function openAddTabModal(): void
+    {
+        $this->resetValidation();
+        $this->newTab = [
+            'title' => '',
+            'suffix' => '',
+        ];
+        $this->showAddTabModal = true;
+    }
+
+    public function closeAddTabModal(): void
+    {
+        $this->showAddTabModal = false;
+    }
+
+    public function addTab(MetadataScaffolder $scaffolder): void
+    {
+        $this->validate([
+            'newTab.title' => 'required|string',
+            'newTab.suffix' => 'required|string|regex:/^[A-Za-z0-9_]+$/',
+        ]);
+
+        $appCode = $this->page['APPLICATION_CODE'];
+        $headerTable = $this->page['TABLE_NAME']; // e.g. NEXUS_T_CUSTOMER
+        if (empty($headerTable)) {
+            session()->flash('error', 'Halaman ini tidak memiliki tabel sumber (TABLE_NAME kosong).');
+            return;
+        }
+
+        $prefix = strtoupper($appCode) . '_T_';
+        if (str_starts_with(strtoupper($headerTable), $prefix)) {
+            $headerEntity = substr(strtoupper($headerTable), strlen($prefix));
+        } else {
+            // fallback if table does not start with APP_T_
+            $headerEntity = preg_replace('/^.*?_T_/', '', strtoupper($headerTable));
+        }
+
+        $detailSuffix = strtoupper(trim($this->newTab['suffix']));
+        $detailEntity = $headerEntity . '_' . $detailSuffix;
+
+        try {
+            $scaffolder->createHeaderDetail([
+                'headerName' => $headerEntity,
+                'detailName' => $detailEntity,
+                'appCode' => $appCode,
+                'detailLabel' => $this->newTab['title'],
+            ]);
+
+            session()->flash('success', "Tab detail dan tabel {$appCode}_T_{$detailEntity} berhasil ditambahkan");
+            $this->closeAddTabModal();
+            $this->loadPage();
+        } catch (\Throwable $e) {
+            session()->flash('error', 'Gagal menambahkan tab detail: ' . $e->getMessage());
+        }
     }
 
     /**
@@ -557,9 +658,9 @@ final class FormBuilder extends Component
             $s = 'C_' . $s;
         }
 
-        // Batas aman 30 karakter.
-        if (strlen($s) > 30) {
-            $s = rtrim(substr($s, 0, 30), '_');
+        // Batas aman 128 karakter (Oracle 12.2+).
+        if (strlen($s) > 128) {
+            $s = rtrim(substr($s, 0, 128), '_');
         }
 
         return $s;
@@ -567,7 +668,7 @@ final class FormBuilder extends Component
 
     private function isValidIdentifier(string $name): bool
     {
-        return (bool) preg_match('/^[A-Za-z][A-Za-z0-9_$#]{0,29}$/', $name);
+        return (bool) preg_match('/^[A-Za-z][A-Za-z0-9_$#]{0,127}$/', $name);
     }
 
     private function columnExists(string $table, string $column): bool

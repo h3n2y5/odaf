@@ -18,6 +18,10 @@ use Odaf\Runtime\Contracts\ExecutionContextInterface;
  *    -> SEC_PERMISSION dengan TARGET_OBJECT_ID + ACTION_CODE yang cocok.
  *  - Field-level: field tanpa permission FIELD terdaftar dianggap terlihat
  *    (belum dibatasi); jika ada permission FIELD, hanya yang diberikan READ.
+ *  - Fine-grained access (SEC_ACCESS): FULL / READONLY / MASKED / NONE per
+ *    PAGE dan FIELD, dengan masa berlaku (VALID_FROM/VALID_TO) dan hierarki
+ *    role (PARENT_ROLE_ID). Level efektif = paling permisif di antara semua
+ *    role user (termasuk role warisan). Superuser selalu FULL.
  *
  * Data RBAC (assignment user/role/permission) bersifat operasional, bukan
  * metadata terkompilasi, sehingga dibaca langsung dari repository.
@@ -27,8 +31,17 @@ final class RbacSecurityEngine implements SecurityEngineInterface
     /** @var array<string, bool> cache superuser per userId */
     private array $superuserCache = [];
 
-    /** @var array<string, array<int, string>> cache roleIds per userId */
+    /** @var array<string, array<int, string>> cache roleIds per userId (direct + inherited) */
     private array $roleCache = [];
+
+    /** @var bool|null cache keberadaan kolom PARENT_ROLE_ID di SEC_ROLE */
+    private ?bool $hierarchyAvailable = null;
+
+    /** @var bool|null cache keberadaan kolom VALID_FROM di SEC_USER_ROLE */
+    private ?bool $roleValidityAvailable = null;
+
+    /** @var bool|null cache keberadaan kolom VALID_FROM di SEC_ACCESS */
+    private ?bool $accessValidityAvailable = null;
 
     public function __construct(private readonly ConnectionInterface $connection) {}
 
@@ -139,8 +152,12 @@ final class RbacSecurityEngine implements SecurityEngineInterface
      * Kebijakan: sebuah objek "terbuka" (FULL) selama belum ada aturan
      * SEC_ACCESS untuknya (tipe + target manapun, role manapun). Begitu ada
      * minimal satu aturan, objek "terkelola": level efektif = aturan paling
-     * permisif di antara role milik user; bila user tidak punya aturan untuk
-     * objek terkelola tsb, hasilnya NONE. Superuser selalu FULL.
+     * permisif di antara role milik user (termasuk role warisan via hierarki);
+     * bila user tidak punya aturan untuk objek terkelola tsb, hasilnya NONE.
+     * Superuser selalu FULL.
+     *
+     * Masa berlaku: aturan SEC_ACCESS dengan VALID_FROM > hari ini atau
+     * VALID_TO < hari ini diabaikan (dianggap tidak ada).
      */
     public function accessLevels(ExecutionContextInterface $context, string $objectType, array $objectIds): array
     {
@@ -156,17 +173,20 @@ final class RbacSecurityEngine implements SecurityEngineInterface
 
         $objectType = strtoupper($objectType);
         [$idPh, $idBind] = $this->rawInList($ids);
+        $validityFilter = $this->accessValidityFilter();
 
-        // Objek yang terkelola (punya minimal satu aturan, role manapun).
+        // Objek yang terkelola (punya minimal satu aturan aktif, role manapun).
         $managedRows = $this->connection->select(
             "SELECT DISTINCT RAWTOHEX(TARGET_OBJECT_ID) AS TID
                FROM SEC_ACCESS
-              WHERE OBJECT_TYPE = ? AND TARGET_OBJECT_ID IN ({$idPh})",
+              WHERE OBJECT_TYPE = ? AND TARGET_OBJECT_ID IN ({$idPh})
+                {$validityFilter}",
             [$objectType, ...$idBind],
         );
         $managed = array_map(fn ($r): string => strtoupper($this->firstValue($r)), $managedRows);
 
-        // Aturan milik role user (untuk menghitung level paling permisif).
+        // Aturan milik role user (direct + warisan) untuk menghitung level
+        // paling permisif. Termasuk role dari hierarki (PARENT_ROLE_ID).
         $userLevels = [];
         $roleIds = $this->roleIds($context);
         if ($roleIds !== [] && $managed !== []) {
@@ -177,7 +197,8 @@ final class RbacSecurityEngine implements SecurityEngineInterface
                    FROM SEC_ACCESS
                   WHERE OBJECT_TYPE = ?
                     AND ROLE_ID IN ({$rolePh})
-                    AND TARGET_OBJECT_ID IN ({$mPh})",
+                    AND TARGET_OBJECT_ID IN ({$mPh})
+                    {$validityFilter}",
                 [$objectType, ...$roleBind, ...$mBind],
             );
             foreach ($rows as $r) {
@@ -202,11 +223,12 @@ final class RbacSecurityEngine implements SecurityEngineInterface
         return $result;
     }
 
-    /** Bobot permisif: NONE < MASKED < READONLY < FULL. */
+    /** Bobot permisif: NONE < MASKED < READONLY < APPEND < FULL. */
     private function rank(string $level): int
     {
         return match (strtoupper($level)) {
-            self::LEVEL_FULL => 3,
+            self::LEVEL_FULL => 4,
+            self::LEVEL_APPEND => 3,
             self::LEVEL_READONLY => 2,
             self::LEVEL_MASKED => 1,
             default => 0, // NONE / tak dikenal
@@ -256,10 +278,15 @@ final class RbacSecurityEngine implements SecurityEngineInterface
     }
 
     /**
+     * Role efektif pengguna: role langsung (SEC_USER_ROLE, difilter masa
+     * berlaku) ditambah role warisan via hierarki (PARENT_ROLE_ID).
+     *
      * @return array<int, string>
      */
     private function roleIds(ExecutionContextInterface $context): array
     {
+        // Jika context sudah membawa roleIds (dari OdafUserProvider saat login),
+        // gunakan langsung — sudah terfilter validity & diperluas hierarki.
         if ($context->roleIds() !== []) {
             return $context->roleIds();
         }
@@ -271,15 +298,118 @@ final class RbacSecurityEngine implements SecurityEngineInterface
             return $this->roleCache[$userId];
         }
 
+        // 1. Role langsung (dengan filter masa berlaku bila kolom tersedia).
+        $validityFilter = $this->roleValidityFilter();
         $rows = $this->connection->select(
-            'SELECT RAWTOHEX(ROLE_ID) AS ROLE_ID FROM SEC_USER_ROLE WHERE USER_ID = HEXTORAW(?)',
+            "SELECT RAWTOHEX(ROLE_ID) AS ROLE_ID
+               FROM SEC_USER_ROLE
+              WHERE USER_ID = HEXTORAW(?)
+                {$validityFilter}",
             [strtoupper($userId)],
         );
 
-        return $this->roleCache[$userId] = array_map(
+        $directRoles = array_map(
             fn ($r): string => strtoupper($this->firstValue($r)),
             $rows,
         );
+
+        // 2. Perluas dengan hierarki (role warisan via PARENT_ROLE_ID).
+        $allRoles = $this->expandRoleHierarchy($directRoles);
+
+        return $this->roleCache[$userId] = $allRoles;
+    }
+
+    /**
+     * Perluas daftar role dengan semua ancestor (parent, grandparent, dst.)
+     * dari hierarki role. Menggunakan CONNECT BY Oracle bila PARENT_ROLE_ID
+     * tersedia; jika tidak, kembalikan daftar asli.
+     *
+     * @param  array<int, string>  $roleIds  role langsung (hex uppercase)
+     * @return array<int, string>  role langsung + semua ancestor (unik)
+     */
+    private function expandRoleHierarchy(array $roleIds): array
+    {
+        if ($roleIds === [] || ! $this->hasHierarchy()) {
+            return $roleIds;
+        }
+
+        [$placeholders, $bindings] = $this->rawInList($roleIds);
+
+        // CONNECT BY traversal: dimulai dari role langsung, naik ke parent.
+        // NOCYCLE mencegah infinite loop jika ada siklus (seharusnya tidak ada).
+        $rows = $this->connection->select(
+            "SELECT DISTINCT RAWTOHEX(OBJECT_ID) AS ROLE_ID
+               FROM SEC_ROLE
+              START WITH OBJECT_ID IN ({$placeholders})
+            CONNECT BY NOCYCLE OBJECT_ID = PRIOR PARENT_ROLE_ID",
+            $bindings,
+        );
+
+        return array_values(array_unique(array_map(
+            fn ($r): string => strtoupper($this->firstValue($r)),
+            $rows,
+        )));
+    }
+
+    /**
+     * Cek apakah SEC_ROLE memiliki kolom PARENT_ROLE_ID (hierarki tersedia).
+     */
+    private function hasHierarchy(): bool
+    {
+        if ($this->hierarchyAvailable !== null) {
+            return $this->hierarchyAvailable;
+        }
+
+        $count = (int) $this->connection->scalar(
+            "SELECT COUNT(*) FROM USER_TAB_COLUMNS
+              WHERE TABLE_NAME = 'SEC_ROLE' AND COLUMN_NAME = 'PARENT_ROLE_ID'"
+        );
+
+        return $this->hierarchyAvailable = ($count > 0);
+    }
+
+    /**
+     * Fragment SQL filter masa berlaku untuk SEC_USER_ROLE.
+     * Mengembalikan string kosong jika kolom VALID_FROM belum ada.
+     */
+    private function roleValidityFilter(): string
+    {
+        if ($this->roleValidityAvailable === null) {
+            $count = (int) $this->connection->scalar(
+                "SELECT COUNT(*) FROM USER_TAB_COLUMNS
+                  WHERE TABLE_NAME = 'SEC_USER_ROLE' AND COLUMN_NAME = 'VALID_FROM'"
+            );
+            $this->roleValidityAvailable = ($count > 0);
+        }
+
+        if (! $this->roleValidityAvailable) {
+            return '';
+        }
+
+        return "AND (VALID_FROM IS NULL OR VALID_FROM <= TRUNC(SYSDATE))
+                AND (VALID_TO IS NULL OR VALID_TO >= TRUNC(SYSDATE))";
+    }
+
+    /**
+     * Fragment SQL filter masa berlaku untuk SEC_ACCESS.
+     * Mengembalikan string kosong jika kolom VALID_FROM belum ada.
+     */
+    private function accessValidityFilter(): string
+    {
+        if ($this->accessValidityAvailable === null) {
+            $count = (int) $this->connection->scalar(
+                "SELECT COUNT(*) FROM USER_TAB_COLUMNS
+                  WHERE TABLE_NAME = 'SEC_ACCESS' AND COLUMN_NAME = 'VALID_FROM'"
+            );
+            $this->accessValidityAvailable = ($count > 0);
+        }
+
+        if (! $this->accessValidityAvailable) {
+            return '';
+        }
+
+        return "AND (VALID_FROM IS NULL OR VALID_FROM <= TRUNC(SYSDATE))
+                AND (VALID_TO IS NULL OR VALID_TO >= TRUNC(SYSDATE))";
     }
 
     /**

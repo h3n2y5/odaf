@@ -53,9 +53,8 @@
         @else
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 @foreach ($pages as $page)
-                    <a href="/studio/designer/form/{{ $page['ID'] }}" wire:navigate
-                       class="group bg-white rounded-lg border border-slate-200 shadow-sm hover:shadow-md hover:border-indigo-300 transition-all">
-                        <div class="p-6">
+                    <div class="group bg-white rounded-lg border border-slate-200 shadow-sm hover:shadow-md hover:border-indigo-300 transition-all flex flex-col">
+                        <a href="/studio/designer/form/{{ $page['ID'] }}" wire:navigate class="p-6 block flex-1">
                             <div class="flex items-start justify-between">
                                 <div class="p-3 rounded-lg bg-indigo-50 group-hover:bg-indigo-100 transition-colors">
                                     <svg class="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -76,15 +75,33 @@
                                 </span>
                                 <span class="text-slate-400">{{ $page['DATASET_CODE'] ?? 'No dataset' }}</span>
                             </div>
-
-                            <div class="mt-4 inline-flex items-center gap-1 text-sm font-medium text-indigo-600">
+                        </a>
+                        <div class="px-6 pb-6 pt-2 flex items-center gap-4">
+                            <a href="/studio/designer/form/{{ $page['ID'] }}" wire:navigate class="inline-flex items-center gap-1 text-sm font-medium text-indigo-600">
                                 Design form
                                 <svg class="w-4 h-4 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path>
                                 </svg>
-                            </div>
+                            </a>
+                            @if(!empty($page['DATASET_ID']))
+                                <a href="/studio/designer/workflow/{{ $page['DATASET_ID'] }}" wire:navigate
+                                   class="inline-flex items-center gap-1 text-sm font-medium text-amber-600 hover:text-amber-800 transition-colors">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
+                                    </svg>
+                                    Workflow
+                                </a>
+                            @endif
+                            <button wire:click="deletePage('{{ $page['ID'] }}')" 
+                                    wire:confirm="Yakin menghapus menu ini beserta semua metadatanya? Jika ini menu transaksi, TABEL FISIK-nya juga akan di-drop!"
+                                    class="ml-auto inline-flex items-center text-sm font-medium text-slate-400 hover:text-rose-600 transition-colors"
+                                    title="Hapus Menu & Tabel">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                </svg>
+                            </button>
                         </div>
-                    </a>
+                    </div>
                 @endforeach
             </div>
         @endif
@@ -174,7 +191,7 @@
                         </div>
 
                         <div class="rounded-lg bg-blue-50 border border-blue-200 px-3 py-2 text-xs text-blue-700">
-                            Dibuat 2 tabel: header (mis. <span class="font-mono">T_PURCHASE_ORDER</span>) &amp; detail (mis. <span class="font-mono">T_PO_LINE</span>) dengan kolom FK ke header. Tambah kolom lain via Form Builder.
+                            Dibuat 2 tabel: header (mis. <span class="font-mono">{{ strtoupper($application['OBJECT_CODE'] ?? 'APP') }}_T_PURCHASE_ORDER</span>) &amp; detail (mis. <span class="font-mono">{{ strtoupper($application['OBJECT_CODE'] ?? 'APP') }}_T_PO_LINE</span>) dengan kolom FK ke header. Tambah kolom lain via Form Builder.
                         </div>
                     </div>
 

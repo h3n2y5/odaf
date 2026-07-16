@@ -114,16 +114,28 @@ final class OdafUserProvider implements UserProvider
     }
 
     /**
+     * Muat role efektif pengguna: langsung (SEC_USER_ROLE, difilter masa berlaku)
+     * ditambah role warisan via hierarki (PARENT_ROLE_ID pada SEC_ROLE).
+     *
      * @return array<int, string>
      */
     private function loadRoleIds(string $objectId): array
     {
+        // Filter masa berlaku bila kolom tersedia (migrasi 31 sudah jalan).
+        $validityFilter = $this->hasColumn('SEC_USER_ROLE', 'VALID_FROM')
+            ? 'AND (VALID_FROM IS NULL OR VALID_FROM <= TRUNC(SYSDATE))
+               AND (VALID_TO IS NULL OR VALID_TO >= TRUNC(SYSDATE))'
+            : '';
+
         $rows = $this->connection->select(
-            'SELECT RAWTOHEX(ROLE_ID) AS ROLE_ID FROM SEC_USER_ROLE WHERE USER_ID = HEXTORAW(?)',
+            "SELECT RAWTOHEX(ROLE_ID) AS ROLE_ID
+               FROM SEC_USER_ROLE
+              WHERE USER_ID = HEXTORAW(?)
+                {$validityFilter}",
             [$objectId],
         );
 
-        return array_map(
+        $directRoles = array_map(
             static function ($r): string {
                 $arr = (array) $r;
 
@@ -131,5 +143,52 @@ final class OdafUserProvider implements UserProvider
             },
             $rows,
         );
+
+        // Perluas dengan hierarki role bila PARENT_ROLE_ID tersedia.
+        if ($directRoles === [] || ! $this->hasColumn('SEC_ROLE', 'PARENT_ROLE_ID')) {
+            return $directRoles;
+        }
+
+        $placeholders = implode(', ', array_fill(0, count($directRoles), 'HEXTORAW(?)'));
+        $bindings = array_map(static fn (string $id): string => strtoupper($id), $directRoles);
+
+        $expanded = $this->connection->select(
+            "SELECT DISTINCT RAWTOHEX(OBJECT_ID) AS ROLE_ID
+               FROM SEC_ROLE
+              START WITH OBJECT_ID IN ({$placeholders})
+            CONNECT BY NOCYCLE OBJECT_ID = PRIOR PARENT_ROLE_ID",
+            $bindings,
+        );
+
+        return array_values(array_unique(array_map(
+            static function ($r): string {
+                $arr = (array) $r;
+
+                return $arr === [] ? '' : strtoupper((string) reset($arr));
+            },
+            $expanded,
+        )));
+    }
+
+    /**
+     * Cek apakah sebuah kolom ada di tabel (cache per-request).
+     *
+     * @var array<string, bool>
+     */
+    private array $columnCache = [];
+
+    private function hasColumn(string $table, string $column): bool
+    {
+        $key = "{$table}.{$column}";
+        if (isset($this->columnCache[$key])) {
+            return $this->columnCache[$key];
+        }
+
+        $count = (int) $this->connection->scalar(
+            'SELECT COUNT(*) FROM USER_TAB_COLUMNS WHERE TABLE_NAME = ? AND COLUMN_NAME = ?',
+            [strtoupper($table), strtoupper($column)],
+        );
+
+        return $this->columnCache[$key] = ($count > 0);
     }
 }

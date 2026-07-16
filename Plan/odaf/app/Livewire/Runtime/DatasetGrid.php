@@ -127,9 +127,7 @@ final class DatasetGrid extends Component
             return;
         }
 
-        $security->authorize($context, $page['datasetId'], 'DELETE');
         $dataset->delete($context, $page['datasetId'], $key);
-        $audit->record($context, 'DATA_DELETE', $key);
 
         session()->flash('odaf.status', 'Data berhasil dihapus.');
     }
@@ -158,19 +156,16 @@ final class DatasetGrid extends Component
 
         $datasetId = $page['datasetId'];
 
-        if ($security->accessLevel($context, SecurityEngineInterface::OBJ_PAGE, (string) ($page['id'] ?? '')) !== SecurityEngineInterface::LEVEL_FULL) {
-            session()->flash('odaf.status', 'Akses hanya-baca: clone tidak diizinkan.');
+        if (! in_array($security->accessLevel($context, SecurityEngineInterface::OBJ_PAGE, (string) ($page['id'] ?? '')), [SecurityEngineInterface::LEVEL_FULL, SecurityEngineInterface::LEVEL_APPEND], true)) {
+            session()->flash('odaf.status', 'Akses ditolak: clone tidak diizinkan.');
 
             return;
         }
-
-        $security->authorize($context, $datasetId, 'CREATE');
 
         $cloned = 0;
         foreach ($this->selected as $key) {
             try {
                 $newKey = $dataset->cloneRow($context, $datasetId, (string) $key);
-                $audit->record($context, 'DATA_CLONE', $newKey, ['sourceKey' => $key], ['status' => 'DRAFT']);
                 $cloned++;
             } catch (\Throwable $e) {
                 $this->addError('grid', 'Clone gagal: ' . $e->getMessage());
@@ -185,6 +180,60 @@ final class DatasetGrid extends Component
         }
     }
 
+    public function performWorkflow(
+        string $key,
+        string $action,
+        RuntimeSession $session,
+        \Odaf\Engine\Workflow\Contracts\WorkflowEngineInterface $workflow,
+    ): void {
+        $package = $session->boot($this->appCode);
+        $context = $session->context($package->applicationId());
+        $page = $session->kernel()->pageByCode($package->applicationId(), $this->pageCode);
+        if ($page === null || $page['datasetId'] === null) {
+            abort(404);
+        }
+
+        try {
+            $state = $workflow->perform($context, $page['datasetId'], $key, $action, null);
+            session()->flash('odaf.status', "Workflow: {$state->stateName()}.");
+        } catch (\Odaf\Engine\Workflow\Contracts\WorkflowException $e) {
+            $this->addError('workflow', $e->getMessage());
+        }
+    }
+
+
+    public function performBulkWorkflow(
+        string $action,
+        RuntimeSession $session,
+        \Odaf\Engine\Workflow\Contracts\WorkflowEngineInterface $workflow,
+    ): void {
+        if ($this->selected === []) {
+            return;
+        }
+
+        $package = $session->boot($this->appCode);
+        $context = $session->context($package->applicationId());
+        $page = $session->kernel()->pageByCode($package->applicationId(), $this->pageCode);
+        if ($page === null || $page['datasetId'] === null) {
+            abort(404);
+        }
+
+        $successCount = 0;
+        foreach ($this->selected as $key) {
+            try {
+                $workflow->perform($context, $page['datasetId'], (string) $key, $action, null);
+                $successCount++;
+            } catch (\Odaf\Engine\Workflow\Contracts\WorkflowException $e) {
+                $this->addError('workflow', "Aksi gagal pada baris $key: " . $e->getMessage());
+            }
+        }
+
+        if ($successCount > 0) {
+            session()->flash('odaf.status', "Aksi '$action' berhasil dijalankan untuk {$successCount} baris data.");
+            $this->selected = [];
+        }
+    }
+
     public function toggleSelectAll(array $keys): void
     {
         $allSelected = $keys !== [] && count(array_intersect($keys, $this->selected)) === count($keys);
@@ -195,7 +244,7 @@ final class DatasetGrid extends Component
         }
     }
 
-    public function render(RuntimeSession $session, DatasetEngineInterface $dataset, SecurityEngineInterface $security, LovEngineInterface $lov)
+    public function render(RuntimeSession $session, DatasetEngineInterface $dataset, SecurityEngineInterface $security, LovEngineInterface $lov, \Odaf\Engine\Workflow\Contracts\WorkflowEngineInterface $workflow)
     {
         $package = $session->boot($this->appCode);
         $kernel = $session->kernel();
@@ -206,9 +255,8 @@ final class DatasetGrid extends Component
             abort(404, "Halaman grid tidak ditemukan: {$this->pageCode}");
         }
 
-        $security->authorize($context, $page['datasetId'], 'READ');
-
         $criteria = [];
+
 
         // Pencarian global (kolom teks pertama).
         if ($this->search !== '') {
@@ -255,22 +303,34 @@ final class DatasetGrid extends Component
             }
         }
 
-        // Page-level access: NONE -> 403; hanya FULL yang boleh menulis.
+        $isAdmin = $security->isSuperuser($context);
+
+        // Page status check
+        $pageStatus = $page['status'] ?? 'PUBLISHED';
+        if (! $isAdmin && $pageStatus !== 'PUBLISHED') {
+            abort(403, 'Halaman ini belum dipublikasikan atau tidak tersedia.');
+        }
+
+        // Page-level access: NONE -> 403; FULL atau APPEND boleh menulis (tambah baru).
         $pageLevel = $security->accessLevel($context, SecurityEngineInterface::OBJ_PAGE, (string) ($page['id'] ?? ''));
         if ($pageLevel === SecurityEngineInterface::LEVEL_NONE) {
             abort(403, 'Anda tidak memiliki akses ke halaman ini.');
         }
-        $canWrite = $pageLevel === SecurityEngineInterface::LEVEL_FULL;
+        $canWrite = in_array($pageLevel, [SecurityEngineInterface::LEVEL_FULL, SecurityEngineInterface::LEVEL_APPEND], true);
 
-        // Terapkan pilihan sembunyikan kolom (column chooser).
+        // Terapkan pilihan sembunyikan kolom (column chooser) dan status PUBLISHED.
         $columns = array_values(array_filter(
             $allColumns,
-            fn (array $f): bool => ! in_array(strtoupper((string) $f['column']), $this->hiddenColumns, true),
+            function (array $f) use ($isAdmin): bool {
+                if (! $isAdmin && ($f['status'] ?? 'PUBLISHED') !== 'PUBLISHED') {
+                    return false;
+                }
+                return ! in_array(strtoupper((string) $f['column']), $this->hiddenColumns, true);
+            },
         ));
 
         $ds = $kernel->dataset($package->applicationId(), $page['datasetId']);
 
-        // Peta label LOV per kolom (agar grid menampilkan label, bukan kode).
         $lovLabels = [];
         foreach ($columns as $col) {
             $lovId = ($col['lovId'] ?? '') !== '' ? (string) $col['lovId'] : null;
@@ -279,6 +339,51 @@ final class DatasetGrid extends Component
                     $lovLabels[strtoupper((string) $col['column'])][$opt['value']] = $opt['label'];
                 }
             }
+        }
+
+        $workflowTransitions = [];
+        $pkCol = strtoupper((string) ($ds['primaryKey'] ?? ''));
+        if ($workflow->hasWorkflow($context, $page['datasetId'])) {
+            foreach ($result->rows() as $row) {
+                $key = (string) ($row[$pkCol] ?? '');
+                if ($key !== '') {
+                    $transitions = $workflow->availableTransitions($context, $page['datasetId'], $key);
+                    if ($transitions !== []) {
+                        $workflowTransitions[$key] = $transitions;
+                    }
+                }
+            }
+        }
+
+        $bulkWorkflowTransitions = [];
+        if ($this->selected !== [] && $workflow->hasWorkflow($context, $page['datasetId'])) {
+            $common = null;
+            foreach ($this->selected as $selKey) {
+                $transitions = $workflow->availableTransitions($context, $page['datasetId'], (string) $selKey);
+                if ($transitions === []) {
+                    $common = [];
+                    break;
+                }
+                
+                $trMap = [];
+                foreach ($transitions as $tr) {
+                    $trMap[$tr['action']] = $tr;
+                }
+                
+                if ($common === null) {
+                    $common = $trMap;
+                } else {
+                    foreach (array_keys($common) as $act) {
+                        if (!isset($trMap[$act])) {
+                            unset($common[$act]);
+                        }
+                    }
+                }
+                if ($common === []) {
+                    break;
+                }
+            }
+            $bulkWorkflowTransitions = array_values($common ?? []);
         }
 
         return view('livewire.runtime.dataset-grid', [
@@ -291,10 +396,14 @@ final class DatasetGrid extends Component
             'rows' => $result->rows(),
             'total' => $result->total(),
             'lastPage' => $result->lastPage(),
-            'primaryKey' => strtoupper((string) ($ds['primaryKey'] ?? '')),
+            'primaryKey' => $pkCol,
             'lovLabels' => $lovLabels,
             'maskedColumns' => $maskedColumns,
             'canWrite' => $canWrite,
+            'workflowTransitions' => $workflowTransitions,
+            'bulkWorkflowTransitions' => $bulkWorkflowTransitions,
+            'isAdmin' => $isAdmin,
+            'tableName' => $ds['sourceObject'] ?? '',
         ]);
     }
 }

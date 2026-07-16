@@ -22,6 +22,7 @@ final class DetailGrid extends Component
     public string $childPageCode;
     public string $fkColumn;
     public string $parentKey;
+    public array $parentForm = [];
     public string $title = 'Detail';
 
     /** @var array<int, array<string, mixed>> field metadata grid (dari page anak). */
@@ -33,19 +34,25 @@ final class DetailGrid extends Component
     public string $childDatasetId = '';
     public string $childPk = '';
 
+    public bool $isAdmin = false;
+    public string $tableName = '';
+
     public function mount(
         string $appCode,
         string $childPageCode,
         string $fkColumn,
         string $parentKey,
+        array $parentForm,
         string $title,
         RuntimeSession $session,
         DatasetEngineInterface $dataset,
+        \Odaf\Engine\Lov\Contracts\LovEngineInterface $lov,
     ): void {
         $this->appCode = $appCode;
         $this->childPageCode = $childPageCode;
         $this->fkColumn = strtoupper($fkColumn);
         $this->parentKey = $parentKey;
+        $this->parentForm = $parentForm;
         $this->title = $title;
 
         $package = $session->boot($appCode);
@@ -58,12 +65,39 @@ final class DetailGrid extends Component
         $this->childDatasetId = (string) $page['datasetId'];
         $ds = $kernel->dataset($package->applicationId(), $this->childDatasetId);
         $this->childPk = strtoupper((string) ($ds['primaryKey'] ?? ''));
+        $this->tableName = $ds['sourceObject'] ?? '';
 
-        // Field grid = field page anak, minus kolom FK & STATUS.
+        $this->isAdmin = app(\Odaf\Engine\Security\Contracts\SecurityEngineInterface::class)->isSuperuser($session->context($package->applicationId()));
+        $isAdmin = $this->isAdmin;
+
+        // Field grid = field page anak, minus STATUS. (fkColumn tidak difilter agar bisa tampil jika user menginginkannya)
         $this->fields = array_values(array_filter(
             $page['fields'],
-            fn (array $f): bool => ! in_array(strtoupper((string) $f['column']), [$this->fkColumn, 'STATUS'], true),
+            function (array $f) use ($isAdmin): bool {
+                if (! $isAdmin && ($f['status'] ?? 'PUBLISHED') !== 'PUBLISHED') {
+                    return false;
+                }
+                return strtoupper((string) $f['column']) !== 'STATUS';
+            },
         ));
+
+        // Resolusi opsi LOV untuk kolom-kolom grid & set inherited
+        $context = $session->context($package->applicationId());
+        foreach ($this->fields as &$f) {
+            $col = strtoupper((string) $f['column']);
+            $lovId = $f['lovId'] ?? null;
+            if ($lovId !== null && $lovId !== '') {
+                $f['options'] = $lov->options($context, (string) $lovId, []);
+            }
+            
+            // Jika kolom adalah FK, ATAU kolom ada di parentForm, jadikan read-only & auto-inherit
+            if ($col === $this->fkColumn || array_key_exists($col, $this->parentForm)) {
+                $f['readonly'] = true;
+                $f['inherited'] = true;
+                $f['inheritSource'] = $col === $this->fkColumn ? 'FK' : 'PARENT';
+            }
+        }
+        unset($f);
 
         $this->loadLines($session, $dataset);
     }
@@ -97,12 +131,20 @@ final class DetailGrid extends Component
         $this->lines = $lines;
     }
 
-    /** Tambah satu baris kosong (line berikutnya). */
     public function addLine(): void
     {
         $line = ['__pk' => null];
         foreach ($this->fields as $f) {
-            $line[strtoupper((string) $f['column'])] = null;
+            $col = strtoupper((string) $f['column']);
+            if ($f['inherited'] ?? false) {
+                if (($f['inheritSource'] ?? '') === 'FK') {
+                    $line[$col] = $this->parentKey;
+                } else {
+                    $line[$col] = $this->parentForm[$col] ?? null;
+                }
+            } else {
+                $line[$col] = null;
+            }
         }
         $this->lines[] = $line;
     }
@@ -121,8 +163,14 @@ final class DetailGrid extends Component
             $audit = app(AuditEngineInterface::class);
             $package = $session->boot($this->appCode);
             $context = $session->context($package->applicationId());
+            $page = $session->kernel()->pageByCode($package->applicationId(), $this->childPageCode);
+            $pageLevel = $security->accessLevel($context, SecurityEngineInterface::OBJ_PAGE, (string) ($page['id'] ?? ''));
+            
+            if ($pageLevel !== SecurityEngineInterface::LEVEL_FULL) {
+                $this->addError('detail', 'Akses ditolak: hapus baris membutuhkan akses penuh.');
+                return;
+            }
             try {
-                $security->authorize($context, $this->childDatasetId, 'DELETE');
                 $dataset->delete($context, $this->childDatasetId, (string) $pk);
                 $audit->record($context, 'DATA_DELETE', (string) $pk, ['detail' => $this->fkColumn], []);
             } catch (\Throwable $e) {
@@ -148,6 +196,8 @@ final class DetailGrid extends Component
 
         $package = $session->boot($this->appCode);
         $context = $session->context($package->applicationId());
+        $page = $session->kernel()->pageByCode($package->applicationId(), $this->childPageCode);
+        $pageLevel = $security->accessLevel($context, SecurityEngineInterface::OBJ_PAGE, (string) ($page['id'] ?? ''));
 
         $saved = 0;
         foreach ($this->lines as $line) {
@@ -159,23 +209,33 @@ final class DetailGrid extends Component
             $payload = [$this->fkColumn => $this->parentKey];
             foreach ($this->fields as $f) {
                 $col = strtoupper((string) $f['column']);
-                $val = $line[$col] ?? null;
-                if (strtoupper((string) ($f['fieldType'] ?? '')) === 'CHECKBOX') {
-                    $val = in_array(strtoupper((string) $val), ['1', 'TRUE', 'ON', 'Y', 'YES', 'T'], true) ? 1 : 0;
+                if ($f['inherited'] ?? false) {
+                    $payload[$col] = $this->parentForm[$col] ?? null;
+                } else {
+                    $val = $line[$col] ?? null;
+                    if (strtoupper((string) ($f['fieldType'] ?? '')) === 'CHECKBOX') {
+                        $val = in_array(strtoupper((string) $val), ['1', 'TRUE', 'ON', 'Y', 'YES', 'T'], true) ? 1 : 0;
+                    }
+                    $payload[$col] = $val;
                 }
-                $payload[$col] = $val;
             }
 
             try {
                 $pk = $line['__pk'] ?? null;
                 if ($pk !== null && $pk !== '') {
-                    $security->authorize($context, $this->childDatasetId, 'UPDATE');
+                    if ($pageLevel !== SecurityEngineInterface::LEVEL_FULL) {
+                        $this->addError('detail', 'Akses ditolak: mengubah baris membutuhkan akses penuh.');
+                        continue;
+                    }
                     $dataset->update($context, $this->childDatasetId, (string) $pk, $payload);
-                    $audit->record($context, 'DATA_UPDATE', (string) $pk, [], $payload);
+                    $audit->record($context, 'DATA_UPDATE', (string) $pk, null, [], $payload);
                 } else {
-                    $security->authorize($context, $this->childDatasetId, 'CREATE');
+                    if (! in_array($pageLevel, [SecurityEngineInterface::LEVEL_FULL, SecurityEngineInterface::LEVEL_APPEND], true)) {
+                        $this->addError('detail', 'Akses ditolak: menambah baris tidak diizinkan.');
+                        continue;
+                    }
                     $newKey = $dataset->create($context, $this->childDatasetId, $payload);
-                    $audit->record($context, 'DATA_CREATE', $newKey, [], $payload);
+                    $audit->record($context, 'DATA_CREATE', $newKey, null, [], $payload);
                 }
                 $saved++;
             } catch (\Throwable $e) {

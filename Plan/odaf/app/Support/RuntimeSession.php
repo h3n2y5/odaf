@@ -99,6 +99,11 @@ final class RuntimeSession
             $url = null;
             $pageId = $menu['pageId'] ?? null;
 
+            // Sembunyikan menu bila status BUKAN PUBLISHED (kecuali admin).
+            if (! $isAdmin && ($menu['status'] ?? 'PUBLISHED') !== 'PUBLISHED') {
+                continue;
+            }
+
             // Sembunyikan menu bila akses halaman terkait = NONE (kecuali admin).
             if ($pageId !== null && ! $isAdmin) {
                 $level = $this->security->accessLevel(

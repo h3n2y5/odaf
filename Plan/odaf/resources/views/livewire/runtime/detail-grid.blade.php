@@ -1,6 +1,17 @@
 <div class="rounded-lg border border-slate-200 bg-white p-4 mt-6">
     <div class="flex items-center justify-between mb-3">
-        <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500">{{ $title }}</h2>
+        <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500 flex items-center gap-2">
+            {{ $title }}
+            @if ($isAdmin ?? false)
+                <a href="{{ route('studio.grid', ['table' => $tableName]) }}" target="_blank"
+                   class="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600 hover:bg-indigo-100 hover:text-indigo-700 normal-case" title="Buka Data Manager (Admin)">
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"></path>
+                    </svg>
+                    {{ $tableName }}
+                </a>
+            @endif
+        </h2>
         <div class="flex items-center gap-2">
             <button type="button" wire:click="addLine"
                     class="inline-flex items-center gap-1 rounded-md border border-indigo-600 px-3 py-1.5 text-sm font-medium text-indigo-700 hover:bg-indigo-50">
@@ -49,24 +60,31 @@
                                 $ft = strtoupper((string) ($f['fieldType'] ?? 'TEXT'));
                             @endphp
                             <td class="px-2 py-1.5">
-                                @if ($ft === 'CHECKBOX')
-                                    <input type="checkbox" wire:model="{{ $model }}"
-                                           class="rounded border-slate-300 text-indigo-600">
+                                @if (($f['lovId'] ?? '') !== '')
+                                    <select wire:model="{{ $model }}" @disabled($f['readonly'] ?? false) class="w-full min-w-[8rem] rounded border border-slate-300 px-2 py-1 text-sm text-slate-700 disabled:bg-slate-50 disabled:text-slate-500">
+                                        <option value="">-- pilih --</option>
+                                        @foreach (($f['options'] ?? []) as $opt)
+                                            <option value="{{ $opt['value'] }}">{{ $opt['label'] }}</option>
+                                        @endforeach
+                                    </select>
+                                @elseif ($ft === 'CHECKBOX')
+                                    <input type="checkbox" wire:model="{{ $model }}" @disabled($f['readonly'] ?? false)
+                                           class="rounded border-slate-300 text-indigo-600 disabled:opacity-50">
                                 @elseif ($ft === 'TEXTAREA')
-                                    <textarea wire:model="{{ $model }}" rows="1"
-                                              class="w-full min-w-[10rem] rounded border border-slate-300 px-2 py-1 text-sm"></textarea>
+                                    <textarea wire:model="{{ $model }}" rows="1" @readonly($f['readonly'] ?? false)
+                                              class="w-full min-w-[10rem] rounded border border-slate-300 px-2 py-1 text-sm read-only:bg-slate-50 read-only:text-slate-500"></textarea>
                                 @elseif (in_array($ft, ['NUMBER','INTEGER','DECIMAL']))
-                                    <input type="number" step="any" wire:model="{{ $model }}"
-                                           class="w-full min-w-[6rem] rounded border border-slate-300 px-2 py-1 text-sm text-right">
+                                    <input type="number" step="any" wire:model="{{ $model }}" @readonly($f['readonly'] ?? false)
+                                           class="w-full min-w-[6rem] rounded border border-slate-300 px-2 py-1 text-sm text-right read-only:bg-slate-50 read-only:text-slate-500">
                                 @elseif ($ft === 'DATE')
-                                    <input type="date" wire:model="{{ $model }}"
-                                           class="w-full min-w-[9rem] rounded border border-slate-300 px-2 py-1 text-sm">
+                                    <input type="date" wire:model="{{ $model }}" @readonly($f['readonly'] ?? false)
+                                           class="w-full min-w-[9rem] rounded border border-slate-300 px-2 py-1 text-sm read-only:bg-slate-50 read-only:text-slate-500">
                                 @elseif ($ft === 'DATETIME')
-                                    <input type="datetime-local" wire:model="{{ $model }}"
-                                           class="w-full min-w-[11rem] rounded border border-slate-300 px-2 py-1 text-sm">
+                                    <input type="datetime-local" wire:model="{{ $model }}" @readonly($f['readonly'] ?? false)
+                                           class="w-full min-w-[11rem] rounded border border-slate-300 px-2 py-1 text-sm read-only:bg-slate-50 read-only:text-slate-500">
                                 @else
-                                    <input type="text" wire:model="{{ $model }}"
-                                           class="w-full min-w-[8rem] rounded border border-slate-300 px-2 py-1 text-sm">
+                                    <input type="text" wire:model="{{ $model }}" @readonly($f['readonly'] ?? false)
+                                           class="w-full min-w-[8rem] rounded border border-slate-300 px-2 py-1 text-sm read-only:bg-slate-50 read-only:text-slate-500">
                                 @endif
                             </td>
                         @endforeach

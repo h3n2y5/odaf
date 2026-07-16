@@ -27,18 +27,20 @@ final class OracleAuditEngine implements AuditEngineInterface
         ExecutionContextInterface $context,
         string $eventType,
         string $objectId,
+        ?string $objectName = null,
         array $before = [],
         array $after = [],
     ): void {
         try {
             $this->connection->insert(
                 'INSERT INTO AUD_EVENT
-                    (EVENT_ID, EVENT_TYPE, OBJECT_ID, DATASET_CODE, USER_ID, APPLICATION_ID, BEFORE_DATA, AFTER_DATA)
-                 VALUES (HEXTORAW(?), ?, HEXTORAW(?), ?, HEXTORAW(?), HEXTORAW(?), ?, ?)',
+                    (EVENT_ID, EVENT_TYPE, OBJECT_ID, OBJECT_NAME, DATASET_CODE, USER_ID, APPLICATION_ID, BEFORE_DATA, AFTER_DATA)
+                 VALUES (HEXTORAW(?), ?, HEXTORAW(?), ?, ?, HEXTORAW(?), HEXTORAW(?), ?, ?)',
                 [
                     strtoupper($this->identity->generate()),
                     $eventType,
                     $objectId !== '' ? $this->rawOrNull($objectId) : null,
+                    $objectName !== '' ? $objectName : null,
                     $context->attributes()['datasetCode'] ?? null,
                     $context->userId() !== null ? $this->rawOrNull($context->userId()) : null,
                     $this->rawOrNull($context->applicationId()),

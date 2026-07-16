@@ -8,6 +8,7 @@ use App\Support\StudioAccess;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
+use Livewire\WithFileUploads;
 
 /**
  * LOV Designer - Visual designer untuk DS_LOV (List of Values).
@@ -22,11 +23,12 @@ use Livewire\Component;
 final class LovDesigner extends Component
 {
     use NormalizesRows;
+    use WithFileUploads;
 
     public ?string $lovId = null;
     public bool $isNewLov = true;
+    public $csvFile;
 
-    /** @var array<string, mixed> */
     public array $lov = [
         'object_code' => '',
         'object_name' => '',
@@ -35,6 +37,7 @@ final class LovDesigner extends Component
         'source_query' => '',
         'value_column' => '',
         'label_column' => '',
+        'application_id' => null,
     ];
 
     /** @var array<int, array<string, string>> */
@@ -52,20 +55,41 @@ final class LovDesigner extends Component
     /** @var array<int, array<string, mixed>> */
     public array $availableTables = [];
 
+    /** @var array<int, array<string, mixed>> */
+    public array $availableApps = [];
+
     public function mount(StudioAccess $access, ?string $lovId = null): void
     {
         $access->ensureAdmin();
+
+        if ($lovId !== null && str_starts_with($lovId, 'ey')) {
+            $decoded = \Odaf\Studio\TableDataManager::decodeKey($lovId);
+            if (isset($decoded['OBJECT_ID'])) {
+                $lovId = $decoded['OBJECT_ID'];
+            }
+        }
 
         $this->lovId = $lovId;
         $this->isNewLov = $lovId === null;
 
         $this->loadTables();
+        $this->loadApps();
 
         if (!$this->isNewLov) {
             $this->loadLov();
         }
 
         $this->updatePreview();
+    }
+
+    private function loadApps(): void
+    {
+        $apps = DB::select("
+            SELECT RAWTOHEX(OBJECT_ID) AS ID, OBJECT_NAME 
+            FROM APP_APPLICATION 
+            ORDER BY OBJECT_NAME
+        ");
+        $this->availableApps = $this->normalizeRows($apps);
     }
 
     public function render()
@@ -96,7 +120,8 @@ final class LovDesigner extends Component
                 LOV_TYPE,
                 SOURCE_QUERY,
                 VALUE_COLUMN,
-                LABEL_COLUMN
+                LABEL_COLUMN,
+                RAWTOHEX(APPLICATION_ID) AS APPLICATION_ID
             FROM DS_LOV
             WHERE OBJECT_ID = HEXTORAW(?)
         ", [$this->lovId]);
@@ -115,6 +140,7 @@ final class LovDesigner extends Component
             'source_query' => $lovArr['SOURCE_QUERY'] ?? '',
             'value_column' => $lovArr['VALUE_COLUMN'] ?? '',
             'label_column' => $lovArr['LABEL_COLUMN'] ?? '',
+            'application_id' => $lovArr['APPLICATION_ID'] ?? null,
         ];
 
         // Parse static JSON to pairs
@@ -327,56 +353,70 @@ final class LovDesigner extends Component
 
         try {
             $sourceQuery = $this->buildSourceQuery();
+            $code = $this->lov['object_code'];
+            $name = $this->lov['object_name'];
+            $type = $this->lov['lov_type'];
+            $valueCol = $this->lov['value_column'] ?: null;
+            $labelCol = $this->lov['label_column'] ?: null;
 
             if ($this->isNewLov) {
-                $lovId = strtoupper(bin2hex(random_bytes(16)));
+                // Ensure column and constraint exists for backwards compatibility
+                try { 
+                    DB::statement("ALTER TABLE DS_LOV ADD (APPLICATION_ID RAW(16))"); 
+                    DB::statement("ALTER TABLE DS_LOV ADD CONSTRAINT FK_DS_LOV_APP FOREIGN KEY (APPLICATION_ID) REFERENCES APP_APPLICATION(OBJECT_ID) ON DELETE CASCADE");
+                } catch (\Throwable $e) {}
 
+                $this->lovId = strtoupper(str_replace('-', '', \Illuminate\Support\Str::uuid()->toString()));
                 DB::insert("
                     INSERT INTO DS_LOV (
-                        OBJECT_ID, OBJECT_CODE, OBJECT_NAME, LOV_TYPE,
-                        VALUE_COLUMN, LABEL_COLUMN, SOURCE_QUERY, DESCRIPTION, STATUS
+                        OBJECT_ID, OBJECT_CODE, OBJECT_NAME, DESCRIPTION,
+                        LOV_TYPE, SOURCE_QUERY, VALUE_COLUMN, LABEL_COLUMN, APPLICATION_ID, STATUS
                     ) VALUES (
-                        HEXTORAW(?), ?, ?, ?,
-                        ?, ?, ?, ?, 'PUBLISHED'
+                        HEXTORAW(?), ?, ?, ?, ?, ?, ?, ?,
+                        " . (empty($this->lov['application_id']) ? "NULL" : "HEXTORAW(?)") . ", 'PUBLISHED'
                     )
-                ", [
-                    $lovId,
-                    $this->lov['object_code'],
-                    $this->lov['object_name'],
-                    $this->lov['lov_type'],
-                    $this->lov['value_column'] ?: null,
-                    $this->lov['label_column'] ?: null,
+                ", array_merge([
+                    $this->lovId,
+                    $code,
+                    $name,
+                    $this->lov['description'] ?? null,
+                    $type,
                     $sourceQuery,
-                    $this->lov['description'] ?: null,
-                ]);
+                    $valueCol,
+                    $labelCol,
+                ], empty($this->lov['application_id']) ? [] : [$this->lov['application_id']]));
 
-                $this->lovId = $lovId;
                 $this->isNewLov = false;
 
                 session()->flash('success', 'LOV berhasil dibuat! Jangan lupa kompilasi & aktifkan aplikasi agar dropdown muncul di runtime.');
             } else {
+                // Ensure column and constraint exists for backwards compatibility
+                try { 
+                    DB::statement("ALTER TABLE DS_LOV ADD (APPLICATION_ID RAW(16))"); 
+                    DB::statement("ALTER TABLE DS_LOV ADD CONSTRAINT FK_DS_LOV_APP FOREIGN KEY (APPLICATION_ID) REFERENCES APP_APPLICATION(OBJECT_ID) ON DELETE CASCADE");
+                } catch (\Throwable $e) {}
+
                 DB::update("
                     UPDATE DS_LOV
-                    SET
-                        OBJECT_CODE = ?,
+                    SET OBJECT_CODE = ?,
                         OBJECT_NAME = ?,
+                        DESCRIPTION = ?,
                         LOV_TYPE = ?,
+                        SOURCE_QUERY = ?,
                         VALUE_COLUMN = ?,
                         LABEL_COLUMN = ?,
-                        SOURCE_QUERY = ?,
-                        DESCRIPTION = ?,
+                        APPLICATION_ID = " . (empty($this->lov['application_id']) ? "NULL" : "HEXTORAW(?)") . ",
                         UPDATED_AT = SYSTIMESTAMP
                     WHERE OBJECT_ID = HEXTORAW(?)
-                ", [
-                    $this->lov['object_code'],
-                    $this->lov['object_name'],
-                    $this->lov['lov_type'],
-                    $this->lov['value_column'] ?: null,
-                    $this->lov['label_column'] ?: null,
+                ", array_merge([
+                    $code,
+                    $name,
+                    $this->lov['description'] ?? null,
+                    $type,
                     $sourceQuery,
-                    $this->lov['description'] ?: null,
-                    $this->lovId,
-                ]);
+                    $valueCol,
+                    $labelCol,
+                ], empty($this->lov['application_id']) ? [$this->lovId] : [$this->lov['application_id'], $this->lovId]));
 
                 session()->flash('success', 'LOV berhasil diperbarui! Jangan lupa kompilasi ulang aplikasi.');
             }
@@ -406,8 +446,51 @@ final class LovDesigner extends Component
         $this->updatePreview();
     }
 
+    public function updatedCsvFile(): void
+    {
+        $this->importCsv();
+    }
+
     public function importCsv(): void
     {
-        session()->flash('info', 'Fitur import CSV akan hadir berikutnya.');
+        if (!$this->csvFile) {
+            return;
+        }
+
+        try {
+            $path = $this->csvFile->getRealPath();
+            $handle = fopen($path, 'r');
+            if ($handle !== false) {
+                $newPairs = [];
+                while (($data = fgetcsv($handle)) !== false) {
+                    $val = trim((string)($data[0] ?? ''));
+                    if ($val === '') {
+                        continue;
+                    }
+                    $lbl = trim((string)($data[1] ?? $val));
+                    $newPairs[] = ['value' => $val, 'label' => $lbl];
+                }
+                fclose($handle);
+
+                // Buang baris kosong yang mungkin ada di staticPairs
+                $this->staticPairs = array_filter(
+                    $this->staticPairs,
+                    fn ($p) => trim((string)$p['value']) !== '' || trim((string)$p['label']) !== ''
+                );
+
+                $this->staticPairs = array_merge(array_values($this->staticPairs), $newPairs);
+                
+                // Pastikan selalu ada 1 baris kosong di akhir untuk diisi manual
+                $this->staticPairs[] = ['value' => '', 'label' => ''];
+
+                $this->updatePreview();
+                session()->flash('success', count($newPairs) . ' baris berhasil diimpor dari CSV.');
+            }
+        } catch (\Throwable $e) {
+            session()->flash('error', 'Gagal membaca file CSV: ' . $e->getMessage());
+        }
+
+        // Reset input file
+        $this->csvFile = null;
     }
 }

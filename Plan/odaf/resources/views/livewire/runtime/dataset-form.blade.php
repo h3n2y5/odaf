@@ -6,8 +6,17 @@
         <div @if($hasSplit) x-ref="topPane" :style="`height:${topH}px`" class="overflow-auto pr-1 border-b border-slate-200" @endif>
         <div class="max-w-3xl">
             <div class="flex items-center justify-between mb-4">
-                <h1 class="text-xl font-semibold text-slate-800">
+                <h1 class="text-xl font-semibold text-slate-800 flex items-center gap-2">
                     {{ $isEdit ? 'Ubah' : 'Baru' }} &mdash; {{ $vm['title'] }}
+                    @if ($isAdmin ?? false)
+                        <a href="{{ route('studio.grid', ['table' => $tableName]) }}" target="_blank"
+                           class="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-indigo-100 hover:text-indigo-700" title="Buka Data Manager (Admin)">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"></path>
+                            </svg>
+                            {{ $tableName }}
+                        </a>
+                    @endif
                 </h1>
                 <a href="{{ route('odaf.grid', ['appCode' => $appCode, 'pageCode' => $pageCode]) }}"
                    wire:navigate class="text-sm text-slate-500 hover:underline">&larr; Kembali</a>
@@ -178,17 +187,32 @@
             <div class="hd-splitter" @mousedown="startDrag($event)" @touchstart="startDrag($event)" @dblclick="resetSplit()"
                  title="Geser untuk mengatur tinggi header/detail (klik ganda: reset)"></div>
 
-            {{-- ===== PANE BAWAH: DETAIL (baris sesuai header ini) ===== --}}
-            <div class="pr-1">
-                <div class="max-w-5xl">
+            {{-- ===== PANE BAWAH: DETAIL TABS ===== --}}
+            <div class="pr-1 flex flex-col min-h-0 bg-slate-50" x-data="{ activeTab: '{{ $details[0]['pageCode'] ?? '' }}' }">
+                <div class="max-w-5xl bg-white border-b border-slate-200">
+                    <nav class="-mb-px flex space-x-1 px-4 overflow-x-auto hide-scrollbar">
+                        @foreach ($details as $d)
+                            <button type="button"
+                                    @click="activeTab = '{{ $d['pageCode'] }}'"
+                                    :class="activeTab === '{{ $d['pageCode'] }}' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900 border-transparent'"
+                                    class="whitespace-nowrap border-b-2 py-3 px-4 text-sm font-semibold uppercase tracking-wider transition-colors duration-150">
+                                {{ $d['title'] }}
+                            </button>
+                        @endforeach
+                    </nav>
+                </div>
+                <div class="max-w-5xl flex-1 overflow-y-auto p-4">
                     @foreach ($details as $d)
-                        @livewire('runtime.detail-grid', [
-                            'appCode' => $appCode,
-                            'childPageCode' => $d['pageCode'],
-                            'fkColumn' => $d['fkColumn'],
-                            'parentKey' => $key,
-                            'title' => $d['title'],
-                        ], key('detail-' . $d['pageCode']))
+                        <div x-show="activeTab === '{{ $d['pageCode'] }}'" x-cloak>
+                            @livewire('runtime.detail-grid', [
+                                'appCode' => $appCode,
+                                'childPageCode' => $d['pageCode'],
+                                'fkColumn' => $d['fkColumn'],
+                                'parentKey' => $key,
+                                'parentForm' => $this->form,
+                                'title' => $d['title'],
+                            ], key('detail-' . $d['pageCode']))
+                        </div>
                     @endforeach
                 </div>
             </div>

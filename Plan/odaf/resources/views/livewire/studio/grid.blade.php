@@ -7,7 +7,12 @@
                 <p class="text-sm text-slate-500">{{ $total }} baris</p>
             </div>
             @if ($canEdit)
-                <a href="{{ route('studio.form', ['table' => $table]) }}" wire:navigate
+                @php
+                    $newUrl = $table === 'DS_LOV' 
+                        ? route('studio.designer.lov.new') 
+                        : route('studio.form', ['table' => $table]);
+                @endphp
+                <a href="{{ $newUrl }}" wire:navigate
                    class="inline-flex items-center rounded-md bg-indigo-600 px-4 py-2 text-white text-sm font-medium hover:bg-indigo-700">
                     + Baru
                 </a>
@@ -109,6 +114,7 @@
                                        wire:click="toggleSelectAll(@js($pageKeys))"
                                        class="rounded border-slate-300 text-indigo-600">
                             </th>
+                            <th class="px-4 py-2 text-left font-medium text-slate-600 w-32">Aksi</th>
                         @endif
                         @foreach ($displayColumns as $col)
                             <th class="resizable px-4 py-2 text-left font-medium text-slate-600 cursor-pointer select-none whitespace-nowrap"
@@ -120,13 +126,11 @@
                                 <span class="col-resizer" wire:ignore onclick="event.stopPropagation()"></span>
                             </th>
                         @endforeach
-                        @if ($canEdit)
-                            <th class="px-4 py-2 text-right font-medium text-slate-600">Aksi</th>
-                        @endif
                     </tr>
                     {{-- Baris filter per kolom --}}
                     <tr class="bg-white">
                         @if ($canEdit)
+                            <th></th>
                             <th></th>
                         @endif
                         @foreach ($displayColumns as $col)
@@ -137,9 +141,6 @@
                                        class="w-full min-w-[8rem] rounded border border-slate-200 px-2 py-1 text-xs font-normal focus:border-indigo-500 focus:ring-indigo-500">
                             </th>
                         @endforeach
-                        @if ($canEdit)
-                            <th></th>
-                        @endif
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100">
@@ -150,6 +151,18 @@
                                     <input type="checkbox" value="{{ $row['key'] }}" wire:model.live="selected"
                                            class="rounded border-slate-300 text-indigo-600">
                                 </td>
+                                <td class="px-4 py-2 text-left whitespace-nowrap">
+                                    @php
+                                        $editUrl = $table === 'DS_LOV' 
+                                            ? route('studio.designer.lov.edit', ['lovId' => $row['key']]) 
+                                            : route('studio.form', ['table' => $table, 'key' => $row['key']]);
+                                    @endphp
+                                    <a href="{{ $editUrl }}"
+                                       wire:navigate class="text-indigo-600 hover:underline font-medium">Ubah</a>
+                                    <button type="button" wire:click="delete('{{ $row['key'] }}')"
+                                            wire:confirm="Hapus baris ini?"
+                                            class="ml-3 text-rose-600 hover:underline">Hapus</button>
+                                </td>
                             @endif
                             @foreach ($displayColumns as $col)
                                 @php
@@ -158,6 +171,8 @@
                                         $display = $fkLabels[$col][$val];
                                     } elseif (($schema['columns'][$col]['isBinary'] ?? false) && $val) {
                                         $display = strtolower(substr((string) $val, 0, 8)) . '…';
+                                    } elseif (strtoupper($col) === 'PASSWORD_HASH') {
+                                        $display = $val ? '••••••••' : '';
                                     } else {
                                         // Tampilkan penuh; gunakan tombol Wrap agar isi panjang tidak terpotong.
                                         $display = (string) $val;
@@ -165,15 +180,6 @@
                                 @endphp
                                 <td class="px-4 py-2 text-slate-700 whitespace-nowrap">{{ $display }}</td>
                             @endforeach
-                            @if ($canEdit)
-                                <td class="px-4 py-2 text-right whitespace-nowrap">
-                                    <a href="{{ route('studio.form', ['table' => $table, 'key' => $row['key']]) }}"
-                                       wire:navigate class="text-indigo-600 hover:underline">Ubah</a>
-                                    <button type="button" wire:click="delete('{{ $row['key'] }}')"
-                                            wire:confirm="Hapus baris ini?"
-                                            class="ml-3 text-rose-600 hover:underline">Hapus</button>
-                                </td>
-                            @endif
                         </tr>
                     @empty
                         <tr>

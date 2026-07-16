@@ -124,6 +124,27 @@ final class RuntimePackageRepository
     }
 
     /**
+     * Muat semua package aktif untuk mendapatkan daftar aplikasi yang tersedia.
+     *
+     * @return array<int, RuntimePackageInterface>
+     */
+    public function loadAllActive(): array
+    {
+        $rows = $this->connection->select(
+            'SELECT RAWTOHEX(OBJECT_ID) AS OBJECT_ID, RAWTOHEX(APPLICATION_ID) AS APPLICATION_ID,
+                    PACKAGE_VERSION, CHECKSUM, PAYLOAD
+             FROM RT_PACKAGE WHERE ACTIVE_FLAG = 1',
+        );
+
+        $packages = [];
+        foreach ($rows as $row) {
+            $packages[] = $this->hydrate((array) $row);
+        }
+
+        return $packages;
+    }
+
+    /**
      * @param  array<string, mixed>  $row
      */
     private function hydrate(array $row): RuntimePackageInterface
