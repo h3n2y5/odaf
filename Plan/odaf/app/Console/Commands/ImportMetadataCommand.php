@@ -42,10 +42,10 @@ final class ImportMetadataCommand extends Command
         try {
             $this->importTable('APP_APPLICATION', [$data['application']]);
             $this->importTable('APP_MODULE', $data['modules'] ?? []);
-            $this->importTable('APP_MENU', $data['menus'] ?? []);
             $this->importTable('DS_DATASET', $data['datasets'] ?? []);
             $this->importTable('DS_LOV', $data['lovs'] ?? []);
             $this->importTable('UI_PAGE', $data['pages'] ?? []);
+            $this->importTable('APP_MENU', $data['menus'] ?? []);
             $this->importTable('UI_FIELD', $data['fields'] ?? []);
             $this->importTable('VAL_RULE', $data['rules'] ?? []);
             $this->importTable('WF_WORKFLOW', $data['workflows'] ?? []);
