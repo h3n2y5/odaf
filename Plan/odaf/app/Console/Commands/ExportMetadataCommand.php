@@ -46,8 +46,15 @@ final class ExportMetadataCommand extends Command
                 'notifications' => $graph->notifications(),
                 'subscriptions' => $graph->subscriptions(),
             ];
+
+            array_walk_recursive($data, function (&$value, $key) {
+                // Kolom RAW(16) dari Oracle yang belum di-HEX akan terbaca sebagai string 16 byte
+                if (is_string($value) && str_ends_with((string) $key, '_ID') && strlen($value) === 16) {
+                    $value = strtoupper(bin2hex($value));
+                }
+            });
             
-            $json = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+            $json = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
             
             $filename = "metadata/{$appCode}.json";
             Storage::put($filename, $json);
