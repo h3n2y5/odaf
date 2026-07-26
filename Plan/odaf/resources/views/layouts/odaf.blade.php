@@ -2,8 +2,17 @@
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, minimal-ui">
     <meta name="csrf-token" content="{{ csrf_token() }}">
+    <meta name="theme-color" content="#4f46e5">
+    
+    @if(isset($appCode) && !empty($appCode))
+        <link rel="manifest" href="{{ route('pwa.app.manifest', ['appCode' => $appCode]) }}">
+    @else
+        <link rel="manifest" href="{{ route('pwa.manifest') }}">
+    @endif
+    
+    <link rel="apple-touch-icon" href="/icon-192.png">
     <title>{{ $title ?? 'ODAF Runtime' }}</title>
     <script src="https://cdn.tailwindcss.com"></script>
     {{-- Alpine tidak dimuat terpisah: Livewire 3 sudah membundel Alpine.
@@ -156,5 +165,17 @@
         {{ $slot }}
     </div>
     @livewireScripts
+    
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', function() {
+                navigator.serviceWorker.register('/sw.js').then(function(registration) {
+                    console.log('ServiceWorker registration successful');
+                }, function(err) {
+                    console.log('ServiceWorker registration failed: ', err);
+                });
+            });
+        }
+    </script>
 </body>
 </html>

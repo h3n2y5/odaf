@@ -30,6 +30,9 @@ final class HtmlRenderer implements RendererInterface
         'COMBO' => 'select',
         'SELECT' => 'select',
         'LOV' => 'select',
+        'PHOTO' => 'photo',
+        'DOCUMENT' => 'document',
+        'QRCODE' => 'qrcode',
     ];
 
     public function target(): string

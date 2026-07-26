@@ -33,6 +33,8 @@ final class ApplicationGraph extends MetadataObject
      * @param  array<int, array<string,mixed>>  $transitions  baris WF_TRANSITION
      * @param  array<int, array<string,mixed>>  $notifications  baris NTF_NOTIFICATION
      * @param  array<int, array<string,mixed>>  $subscriptions  baris NTF_SUBSCRIPTION
+     * @param  array<int, array<string,mixed>>  $qrConfigs  baris QR_CONFIG
+     * @param  array<int, array<string,mixed>>  $rptTemplates  baris RPT_TEMPLATE
      */
     public function __construct(
         array $application,
@@ -49,6 +51,8 @@ final class ApplicationGraph extends MetadataObject
         private readonly array $transitions = [],
         private readonly array $notifications = [],
         private readonly array $subscriptions = [],
+        private readonly array $qrConfigs = [],
+        private readonly array $rptTemplates = [],
     ) {
         parent::__construct(
             objectId: (string) ($application['OBJECT_ID'] ?? ''),
@@ -221,5 +225,43 @@ final class ApplicationGraph extends MetadataObject
         }
 
         return null;
+    }
+
+    /** @return array<int, array<string,mixed>> */
+    public function qrConfigs(): array
+    {
+        return $this->qrConfigs;
+    }
+
+    /**
+     * QR configs untuk sebuah halaman tertentu (OBJECT_ID halaman).
+     *
+     * @return array<int, array<string,mixed>>
+     */
+    public function qrConfigsForPage(string $pageId): array
+    {
+        return array_values(array_filter(
+            $this->qrConfigs,
+            static fn (array $q): bool => (string) ($q['PAGE_ID'] ?? '') === $pageId,
+        ));
+    }
+
+    /** @return array<int, array<string,mixed>> */
+    public function rptTemplates(): array
+    {
+        return $this->rptTemplates;
+    }
+
+    /**
+     * Report templates untuk sebuah halaman tertentu (OBJECT_ID halaman).
+     *
+     * @return array<int, array<string,mixed>>
+     */
+    public function rptTemplatesForPage(string $pageId): array
+    {
+        return array_values(array_filter(
+            $this->rptTemplates,
+            static fn (array $r): bool => (string) ($r['PAGE_ID'] ?? '') === $pageId,
+        ));
     }
 }

@@ -46,6 +46,12 @@ final class ColumnMapper
 
         // Teks.
         if (in_array($type, ['VARCHAR2', 'NVARCHAR2', 'CHAR', 'NCHAR'], true)) {
+            if (str_contains($name, 'PHOTO') || str_contains($name, 'FOTO') || str_contains($name, 'IMAGE') || str_contains($name, 'PIC')) {
+                return ['fieldType' => 'PHOTO', 'dataType' => 'STRING'];
+            }
+            if (str_contains($name, 'DOCUMENT') || str_contains($name, 'DOKUMEN') || str_contains($name, 'FILE') || str_contains($name, 'PDF')) {
+                return ['fieldType' => 'DOCUMENT', 'dataType' => 'STRING'];
+            }
             if (str_contains($name, 'EMAIL')) {
                 return ['fieldType' => 'EMAIL', 'dataType' => 'STRING'];
             }

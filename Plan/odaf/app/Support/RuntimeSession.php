@@ -117,7 +117,18 @@ final class RuntimeSession
             }
 
             if ($pageId !== null && isset($pages[$pageId])) {
-                $url = route('odaf.grid', ['appCode' => $appCode, 'pageCode' => $pages[$pageId]['code']]);
+                $pageType = $pages[$pageId]['pageType'] ?? 'FORM';
+                if ($pageType === 'CUSTOM') {
+                    $url = route('odaf.custom-page', ['appCode' => $appCode, 'pageCode' => $pages[$pageId]['code']]);
+                } else {
+                    $url = route('odaf.grid', ['appCode' => $appCode, 'pageCode' => $pages[$pageId]['code']]);
+                }
+            } elseif (($menu['customRoute'] ?? null) !== null) {
+                // Rute kustom (seperti /pos atau /promo/simulator)
+                // Jika URL dimulai dengan http, gunakan langsung, jika tidak tambahkan origin (atau sekadar string)
+                $url = str_starts_with($menu['customRoute'], 'http') 
+                    ? $menu['customRoute'] 
+                    : url($menu['customRoute']);
             }
 
             // Menu tanpa halaman: sediakan link konfigurasi lanjutan (khusus admin)

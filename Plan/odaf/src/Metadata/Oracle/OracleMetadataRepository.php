@@ -229,6 +229,23 @@ final class OracleMetadataRepository implements MetadataRepositoryInterface
             );
         }
 
+        // QR Code configs per page (F2 extension).
+        $qrConfigs = $this->fetchAll(
+            'SELECT t.*, RAWTOHEX(t.OBJECT_ID) AS OBJECT_ID, RAWTOHEX(t.PAGE_ID) AS PAGE_ID
+             FROM QR_CONFIG t
+             WHERE t.PAGE_ID IN (
+                 SELECT OBJECT_ID FROM UI_PAGE WHERE APPLICATION_ID = HEXTORAW(?)
+             ) AND t.STATUS = ?
+             ORDER BY t.OBJECT_CODE',
+            [$appId, 'PUBLISHED'],
+        );
+        $rptTemplates = $this->fetchAll(
+            'SELECT t.*, RAWTOHEX(t.OBJECT_ID) AS OBJECT_ID, RAWTOHEX(t.PAGE_ID) AS PAGE_ID
+             FROM RPT_TEMPLATE t
+             WHERE t.APPLICATION_ID = HEXTORAW(?) AND t.STATUS = ?',
+            [$appId, 'PUBLISHED'],
+        );
+
         return new ApplicationGraph(
             application: $application,
             modules: $modules,
@@ -244,6 +261,8 @@ final class OracleMetadataRepository implements MetadataRepositoryInterface
             transitions: $transitions,
             notifications: $notifications,
             subscriptions: $subscriptions,
+            qrConfigs: $qrConfigs,
+            rptTemplates: $rptTemplates,
         );
     }
 

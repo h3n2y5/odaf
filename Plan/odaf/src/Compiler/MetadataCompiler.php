@@ -50,6 +50,9 @@ final class MetadataCompiler implements MetadataCompilerInterface
         $payload = $this->buildPayload($graph);
         $checksum = hash('sha256', RuntimePackage::canonicalJson($payload));
         $version = sprintf('%d.%s', $graph->versionNo(), substr($checksum, 0, 12));
+        
+        // Generate physical files for custom pages (Opsi 1)
+        $this->compileCustomPages($graph);
 
         return new RuntimePackage(
             packageId: $this->identity->generate(),
@@ -120,7 +123,7 @@ final class MetadataCompiler implements MetadataCompilerInterface
                 );
             }
 
-            if (count($graph->fieldsForPage($pageId)) === 0 && $pageType !== 'DASHBOARD') {
+            if (count($graph->fieldsForPage($pageId)) === 0 && !in_array($pageType, ['DASHBOARD', 'CUSTOM'], true)) {
                 $diagnostics[] = CompilerDiagnostic::warning(
                     'ODAF-CMP-2101',
                     sprintf('Halaman %s tidak memiliki field.', $page['OBJECT_CODE'] ?? $pageId),
@@ -464,6 +467,128 @@ final class MetadataCompiler implements MetadataCompilerInterface
     // ---- MIR / payload emission --------------------------------------------
 
     /**
+     * Generate physical files for custom pages based on PAGE_CONFIG
+     */
+    private function compileCustomPages(ApplicationGraph $graph): void
+    {
+        $customPages = array_filter($graph->pages(), static fn ($p) => ($p['PAGE_TYPE'] ?? '') === 'CUSTOM');
+        
+        $phpDir = app_path('Livewire/Runtime/Custom');
+        $bladeDir = resource_path('views/livewire/runtime/custom');
+        
+        if (!is_dir($phpDir)) {
+            mkdir($phpDir, 0755, true);
+        }
+        if (!is_dir($bladeDir)) {
+            mkdir($bladeDir, 0755, true);
+        }
+
+        foreach ($customPages as $page) {
+            $pageCode = (string) $page['OBJECT_CODE'];
+            $className = \Illuminate\Support\Str::studly($pageCode);
+            $viewName = 'custom_' . strtolower($pageCode);
+            
+            $blocksRaw = $page['PAGE_CONFIG'] ?? null;
+            if (is_resource($blocksRaw)) {
+                $blocksRaw = stream_get_contents($blocksRaw);
+            }
+            $blocks = [];
+            if (!empty($blocksRaw) && $blocksRaw !== '[]') {
+                $blocks = json_decode((string) $blocksRaw, true) ?? [];
+            }
+            
+            // Build Blade String
+            $bladeHtml = "<div class=\"custom-page-container flex flex-col gap-6\">\n";
+            $phpLogic = "";
+            $phpProperties = [];
+            
+            if (empty($blocks)) {
+                // Fallback to raw CUSTOM_VIEW_BLADE and CUSTOM_LOGIC_PHP
+                $rawView = $page['CUSTOM_VIEW_BLADE'] ?? '';
+                if (is_resource($rawView)) $rawView = stream_get_contents($rawView);
+                $bladeHtml .= $rawView;
+                
+                $rawLogic = $page['CUSTOM_LOGIC_PHP'] ?? '';
+                if (is_resource($rawLogic)) $rawLogic = stream_get_contents($rawLogic);
+                $phpLogic .= $rawLogic;
+            } else {
+                foreach ($blocks as $block) {
+                    $type = $block['type'] ?? '';
+                    $config = $block['config'] ?? [];
+                    
+                    if ($type === 'hero') {
+                        $title = htmlspecialchars($config['title'] ?? 'Title', ENT_QUOTES);
+                        $subtitle = htmlspecialchars($config['subtitle'] ?? 'Subtitle', ENT_QUOTES);
+                        $bladeHtml .= <<<BLADE
+    <div class="bg-indigo-600 rounded-xl p-8 text-white shadow-lg">
+        <h1 class="text-3xl font-bold">{$title}</h1>
+        <p class="mt-2 text-indigo-100">{$subtitle}</p>
+    </div>
+
+BLADE;
+                    } elseif ($type === 'stats') {
+                        $s1l = htmlspecialchars($config['stat1_label'] ?? 'Stat 1', ENT_QUOTES);
+                        $s1v = htmlspecialchars($config['stat1_value'] ?? '0', ENT_QUOTES);
+                        $s2l = htmlspecialchars($config['stat2_label'] ?? 'Stat 2', ENT_QUOTES);
+                        $s2v = htmlspecialchars($config['stat2_value'] ?? '0', ENT_QUOTES);
+                        $s3l = htmlspecialchars($config['stat3_label'] ?? 'Stat 3', ENT_QUOTES);
+                        $s3v = htmlspecialchars($config['stat3_value'] ?? '0', ENT_QUOTES);
+                        
+                        $bladeHtml .= <<<BLADE
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+            <div class="text-sm font-medium text-slate-500">{$s1l}</div>
+            <div class="mt-2 text-3xl font-bold text-slate-800">{$s1v}</div>
+        </div>
+        <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+            <div class="text-sm font-medium text-slate-500">{$s2l}</div>
+            <div class="mt-2 text-3xl font-bold text-slate-800">{$s2v}</div>
+        </div>
+        <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+            <div class="text-sm font-medium text-slate-500">{$s3l}</div>
+            <div class="mt-2 text-3xl font-bold text-slate-800">{$s3v}</div>
+        </div>
+    </div>
+
+BLADE;
+                    } elseif ($type === 'custom') {
+                        $rawView = $page['CUSTOM_VIEW_BLADE'] ?? '';
+                        if (is_resource($rawView)) $rawView = stream_get_contents($rawView);
+                        $bladeHtml .= $rawView . "\n";
+                        
+                        $rawLogic = $page['CUSTOM_LOGIC_PHP'] ?? '';
+                        if (is_resource($rawLogic)) $rawLogic = stream_get_contents($rawLogic);
+                        $phpLogic .= $rawLogic . "\n";
+                    }
+                }
+            }
+            
+            $bladeHtml .= "</div>\n";
+            
+            $phpClass = <<<PHP
+<?php
+
+namespace App\Livewire\Runtime\Custom;
+
+use Livewire\Component;
+
+class {$className} extends Component
+{
+{$phpLogic}
+
+    public function render()
+    {
+        return view('livewire.runtime.custom.{$viewName}');
+    }
+}
+PHP;
+
+            file_put_contents($phpDir . '/' . $className . '.php', $phpClass);
+            file_put_contents($bladeDir . '/' . $viewName . '.blade.php', $bladeHtml);
+        }
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function buildPayload(ApplicationGraph $graph): array
@@ -635,6 +760,7 @@ final class MetadataCompiler implements MetadataCompilerInterface
                 'status' => (string) ($menu['STATUS'] ?? 'PUBLISHED'),
                 'order' => (int) ($menu['DISPLAY_ORDER'] ?? 0),
                 'pageId' => ($menu['PAGE_ID'] ?? '') !== '' ? (string) $menu['PAGE_ID'] : null,
+                'customRoute' => ($menu['CUSTOM_ROUTE'] ?? '') !== '' ? (string) $menu['CUSTOM_ROUTE'] : null,
                 'children' => $this->menuChildren($byParent, $id),
             ];
         }
@@ -689,6 +815,9 @@ final class MetadataCompiler implements MetadataCompilerInterface
                 'datasetId' => ($page['DATASET_ID'] ?? '') !== '' ? (string) $page['DATASET_ID'] : null,
                 'fields' => $fields,
                 'details' => [],
+                'pageConfig' => $page['PAGE_CONFIG'] ?? null,
+                'customViewBlade' => $page['CUSTOM_VIEW_BLADE'] ?? null,
+                'customLogicPhp' => $page['CUSTOM_LOGIC_PHP'] ?? null,
             ];
             $byCode[$code] = $pageId;
             $detailRaw[$pageId] = $page['DETAIL_CONFIG'] ?? null;
@@ -697,6 +826,62 @@ final class MetadataCompiler implements MetadataCompilerInterface
         // Pass kedua: resolve grid detail (header-detail) dari DETAIL_CONFIG.
         foreach ($detailRaw as $pageId => $raw) {
             $pages[$pageId]['details'] = $this->buildPageDetails($raw, $pages, $byCode);
+        }
+
+        // Pass ketiga: lampirkan QR configs per page.
+        foreach ($graph->qrConfigs() as $qr) {
+            $qrPageId = (string) ($qr['PAGE_ID'] ?? '');
+            if (! isset($pages[$qrPageId])) {
+                continue;
+            }
+            $pageForQr = $pages[$qrPageId];
+            $appCode = $graph->objectCode();
+            $pageQrCode = (string) ($pageForQr['code'] ?? '');
+            $pages[$qrPageId]['qrConfigs'][] = [
+                'id' => (string) $qr['OBJECT_ID'],
+                'code' => (string) $qr['OBJECT_CODE'],
+                'name' => (string) $qr['OBJECT_NAME'],
+                'qrType' => (string) ($qr['QR_TYPE'] ?? 'DOCUMENT_LINK'),
+                'appCode' => $appCode,
+                'pageCode' => $pageQrCode,
+                'targetAppCode' => ($qr['TARGET_APP_CODE'] ?? '') !== '' ? (string) $qr['TARGET_APP_CODE'] : null,
+                'targetPageCode' => ($qr['TARGET_PAGE_CODE'] ?? '') !== '' ? (string) $qr['TARGET_PAGE_CODE'] : null,
+                'targetAction' => ($qr['TARGET_ACTION'] ?? '') !== '' ? (string) $qr['TARGET_ACTION'] : null,
+                'dataFields' => ($qr['DATA_FIELDS'] ?? '') !== '' ? (string) $qr['DATA_FIELDS'] : null,
+                'fkColumn' => ($qr['FK_COLUMN'] ?? '') !== '' ? strtoupper((string) $qr['FK_COLUMN']) : null,
+                'position' => (string) ($qr['POSITION'] ?? 'TOP_RIGHT'),
+                'sizePx' => (int) ($qr['SIZE_PX'] ?? 150),
+                'showOnForm' => (int) ($qr['SHOW_ON_FORM'] ?? 1) === 1,
+                'showOnPrint' => (int) ($qr['SHOW_ON_PRINT'] ?? 1) === 1,
+            ];
+        }
+
+        // Pastikan setiap page punya key qrConfigs (kosong jika tidak ada).
+        foreach ($pages as $pid => $_) {
+            $pages[$pid]['qrConfigs'] ??= [];
+        }
+
+        // Pass keempat: lampirkan Report templates per page.
+        foreach ($graph->rptTemplates() as $rpt) {
+            $rptPageId = (string) ($rpt['PAGE_ID'] ?? '');
+            if (! isset($pages[$rptPageId])) {
+                continue;
+            }
+            $pages[$rptPageId]['rptTemplates'][] = [
+                'id' => (string) $rpt['OBJECT_ID'],
+                'code' => (string) $rpt['OBJECT_CODE'],
+                'name' => (string) $rpt['OBJECT_NAME'],
+                'pageSize' => (string) ($rpt['PAGE_SIZE'] ?? 'A4'),
+                'orientation' => (string) ($rpt['ORIENTATION'] ?? 'PORTRAIT'),
+                'htmlContent' => (string) ($rpt['HTML_CONTENT'] ?? ''),
+                'cssContent' => (string) ($rpt['CSS_CONTENT'] ?? ''),
+                'isDefault' => (int) ($rpt['IS_DEFAULT'] ?? 0) === 1,
+            ];
+        }
+
+        // Pastikan setiap page punya key rptTemplates.
+        foreach ($pages as $pid => $_) {
+            $pages[$pid]['rptTemplates'] ??= [];
         }
 
         return $pages;

@@ -52,6 +52,7 @@ final class FormBuilder extends Component
         // Opsi format NUMBER/DECIMAL.
         'num_decimals' => '',      // '' | angka
         'num_thousands' => 0,
+        'calculation' => '',
     ];
 
     public string $previewMode = 'desktop'; // desktop | tablet | mobile
@@ -267,6 +268,7 @@ final class FormBuilder extends Component
             'date_with_time' => (int) (bool) ($config['withTime'] ?? false),
             'num_decimals' => array_key_exists('decimals', $config) && $config['decimals'] !== null ? (string) $config['decimals'] : '',
             'num_thousands' => (int) (bool) ($config['thousandsSep'] ?? false),
+            'calculation' => (string) ($config['calculation'] ?? ''),
         ];
     }
 
@@ -583,6 +585,7 @@ final class FormBuilder extends Component
             'date_with_time' => 0,
             'num_decimals' => '',
             'num_thousands' => 0,
+            'calculation' => '',
         ];
     }
 
@@ -610,6 +613,11 @@ final class FormBuilder extends Component
                 $config['decimals'] = (int) $dec;
             }
             $config['thousandsSep'] = (bool) ($editor['num_thousands'] ?? false);
+            
+            $calc = trim((string) ($editor['calculation'] ?? ''));
+            if ($calc !== '') {
+                $config['calculation'] = $calc;
+            }
         }
 
         return $config === [] ? null : (string) json_encode($config);

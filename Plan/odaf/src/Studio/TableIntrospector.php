@@ -430,6 +430,15 @@ final class TableIntrospector
         if ($isForeignKey || $hasOptions) {
             return 'select';
         }
+        
+        $name = strtoupper($col['name']);
+        if (str_contains($name, 'PHOTO') || str_contains($name, 'FOTO') || str_contains($name, 'IMAGE') || str_contains($name, 'PIC')) {
+            return 'photo';
+        }
+        if (str_contains($name, 'DOCUMENT') || str_contains($name, 'DOKUMEN') || str_contains($name, 'FILE') || str_contains($name, 'PDF')) {
+            return 'document';
+        }
+
         $type = $col['dataType'];
         if (ColumnMapper::isBinary($type)) {
             return 'raw';

@@ -47,7 +47,161 @@ final class ApplicationOverview extends Component
         $this->appId = $appId;
         $this->loadApplication();
         $this->loadPages();
+        $this->loadReports();
+        $this->loadCustomMenus();
     }
+    
+    public string $activeTab = 'pages'; // pages, reports, menus
+    public array $reports = [];
+    public array $customMenus = [];
+    
+    // Dialog Add Custom Menu
+    public bool $showCustomMenuModal = false;
+    public string $customMenuName = '';
+    public string $customMenuRoute = '';
+    
+    public array $availableSystemModules = [
+        ['route' => '/pos', 'name' => 'Point of Sale (Kasir)', 'icon' => 'desktop-computer'],
+        ['route' => '/pricing', 'name' => 'Pricing Manager', 'icon' => 'currency-dollar'],
+        ['route' => '/promo', 'name' => 'Master Promo', 'icon' => 'ticket'],
+        ['route' => '/promo/simulator', 'name' => 'Promo Simulator', 'icon' => 'calculator'],
+        ['route' => '/sys/security', 'name' => 'User & Role Manager', 'icon' => 'users'],
+        ['route' => '/sys/access', 'name' => 'Menu Access Control', 'icon' => 'key'],
+        ['route' => '/sys/workflow', 'name' => 'Workflow Setup', 'icon' => 'git-branch'],
+        ['route' => '/mobile/inventory', 'name' => 'Mobile Inventory (Stock Opname)', 'icon' => 'device-mobile'],
+    ];
+    
+    public function loadReports(): void
+    {
+        $rows = DB::select("
+            SELECT RAWTOHEX(REPORT_ID) AS REPORT_ID, REPORT_NAME, REPORT_DESC 
+            FROM ODAF.APP_REPORT 
+            WHERE APP_CODE = ?
+            ORDER BY REPORT_NAME
+        ", [$this->application['OBJECT_CODE'] ?? '']);
+        
+        $this->reports = array_map(function($r) {
+            $arr = (array)$r;
+            return [
+                'id' => $arr['report_id'] ?? $arr['REPORT_ID'],
+                'name' => $arr['report_name'] ?? $arr['REPORT_NAME'],
+                'desc' => $arr['report_desc'] ?? $arr['REPORT_DESC'],
+            ];
+        }, $rows);
+    }
+    
+    public function deleteReport(string $id): void
+    {
+        DB::delete("DELETE FROM ODAF.APP_REPORT WHERE REPORT_ID = HEXTORAW(?)", [$id]);
+        $this->loadReports();
+        session()->flash('success', 'Report berhasil dihapus.');
+    }
+
+    public function loadCustomMenus(): void
+    {
+        $rows = DB::select("
+            SELECT 
+                RAWTOHEX(P.OBJECT_ID) AS ID, 
+                P.OBJECT_NAME, 
+                P.OBJECT_CODE AS CUSTOM_ROUTE, 
+                'desktop-computer' AS ICON, 
+                'System Module' AS MODULE_NAME
+            FROM ODAF.UI_PAGE P
+            WHERE P.APPLICATION_ID = HEXTORAW(?) AND P.PAGE_TYPE = 'CUSTOM'
+            ORDER BY P.OBJECT_CODE
+        ", [$this->appId]);
+
+        $this->customMenus = array_map(function($r) {
+            $arr = (array)$r;
+            return [
+                'id' => $arr['id'] ?? $arr['ID'],
+                'name' => $arr['object_name'] ?? $arr['OBJECT_NAME'],
+                'route' => $arr['custom_route'] ?? $arr['CUSTOM_ROUTE'],
+                'icon' => $arr['icon'] ?? $arr['ICON'],
+                'module' => $arr['module_name'] ?? $arr['MODULE_NAME'],
+            ];
+        }, $rows);
+    }
+
+    public function openCustomMenuModal(): void
+    {
+        $this->resetErrorBag();
+        $this->customMenuName = '';
+        $this->customMenuRoute = '';
+        $this->showCustomMenuModal = true;
+    }
+
+    public function closeCustomMenuModal(): void
+    {
+        $this->showCustomMenuModal = false;
+    }
+
+    public function selectSystemModule(string $route, string $name): void
+    {
+        $this->customMenuRoute = $route;
+        if (empty($this->customMenuName)) {
+            $this->customMenuName = $name;
+        }
+    }
+
+    public function createCustomMenu(): void
+    {
+        $this->validate([
+            'customMenuName' => 'required|string|max:100',
+            'customMenuRoute' => 'required|string|max:255',
+        ]);
+
+        $appCode = (string) $this->application['OBJECT_CODE'];
+
+        try {
+            // Find or create module for System Plugins
+            $module = DB::selectOne("
+                SELECT RAWTOHEX(OBJECT_ID) AS ID FROM ODAF.APP_MODULE 
+                WHERE APPLICATION_ID = HEXTORAW(?) AND OBJECT_CODE = 'MOD_SYSTEM_PLUGINS'
+            ", [$this->appId]);
+
+            $moduleId = $module ? ($this->normalizeRow($module)['ID']) : null;
+
+            if (!$moduleId) {
+                $moduleId = strtoupper(\Illuminate\Support\Str::uuid()->toString());
+                DB::insert("
+                    INSERT INTO ODAF.APP_MODULE (OBJECT_ID, APPLICATION_ID, OBJECT_CODE, OBJECT_NAME, DISPLAY_ORDER, STATUS)
+                    VALUES (HEXTORAW(?), HEXTORAW(?), 'MOD_SYSTEM_PLUGINS', 'System Modules', 90, 'PUBLISHED')
+                ", [$moduleId, $this->appId]);
+            }
+
+            // Find matching icon
+            $icon = 'puzzle-piece';
+            foreach ($this->availableSystemModules as $sysMod) {
+                if ($sysMod['route'] === $this->customMenuRoute) {
+                    $icon = $sysMod['icon'];
+                    break;
+                }
+            }
+
+            // Determine max display order
+            $maxOrderRow = DB::selectOne("SELECT MAX(DISPLAY_ORDER) AS MAX_ORD FROM ODAF.APP_MENU WHERE MODULE_ID = HEXTORAW(?)", [$moduleId]);
+            $order = (($this->normalizeRow($maxOrderRow)['MAX_ORD'] ?? 0) + 10);
+
+            $menuId = strtoupper(\Illuminate\Support\Str::uuid()->toString());
+            $menuCode = 'MNU_CSTM_' . substr(md5($menuId), 0, 8);
+
+            DB::insert("
+                INSERT INTO ODAF.APP_MENU (OBJECT_ID, MODULE_ID, OBJECT_CODE, OBJECT_NAME, ICON, DISPLAY_ORDER, VISIBLE_FLAG, STATUS, CUSTOM_ROUTE)
+                VALUES (HEXTORAW(?), HEXTORAW(?), ?, ?, ?, ?, 1, 'PUBLISHED', ?)
+            ", [$menuId, $moduleId, strtoupper($menuCode), $this->customMenuName, $icon, $order, $this->customMenuRoute]);
+
+            \Artisan::call('odaf:compile', ['application' => $appCode, '--activate' => true]);
+
+            $this->showCustomMenuModal = false;
+            $this->loadCustomMenus();
+            session()->flash('success', "Menu kustom '{$this->customMenuName}' berhasil ditambahkan ke aplikasi.");
+
+        } catch (\Throwable $e) {
+            session()->flash('error', 'Gagal menambahkan menu kustom: ' . $e->getMessage());
+        }
+    }
+
 
     public function render()
     {
@@ -128,6 +282,79 @@ final class ApplicationOverview extends Component
             $this->loadPages();
         } catch (\Throwable $e) {
             session()->flash('error', 'Gagal membuat tabel/menu: ' . $e->getMessage());
+        }
+    }
+
+    public bool $showCustomPageModal = false;
+    public string $customPageName = '';
+
+    public function openCustomPageModal(): void
+    {
+        $this->resetErrorBag();
+        $this->customPageName = '';
+        $this->showCustomPageModal = true;
+    }
+
+    public function closeCustomPageModal(): void
+    {
+        $this->showCustomPageModal = false;
+    }
+
+    public function createCustomPage(): void
+    {
+        $this->validate(['customPageName' => 'required|string|max:100']);
+
+        $pageId = strtoupper(\Illuminate\Support\Str::uuid()->toString());
+        $pageCode = 'CUST_' . substr(md5($pageId), 0, 8);
+        $appCode = (string) $this->application['OBJECT_CODE'];
+
+        try {
+            DB::beginTransaction();
+
+            DB::insert("
+                INSERT INTO ODAF.UI_PAGE (OBJECT_ID, APPLICATION_ID, OBJECT_CODE, OBJECT_NAME, PAGE_TYPE, LAYOUT_TYPE, VERSION_NO, STATUS)
+                VALUES (HEXTORAW(?), HEXTORAW(?), ?, ?, 'CUSTOM', 'BLANK', 1, 'PUBLISHED')
+            ", [$pageId, $this->appId, $pageCode, $this->customPageName]);
+
+            // Find or create module for Custom Pages
+            $module = DB::selectOne("
+                SELECT RAWTOHEX(OBJECT_ID) AS ID FROM ODAF.APP_MODULE 
+                WHERE APPLICATION_ID = HEXTORAW(?) AND OBJECT_CODE = 'MOD_CUSTOM_PAGES'
+            ", [$this->appId]);
+
+            $moduleId = $module ? ($this->normalizeRow($module)['ID']) : null;
+
+            if (!$moduleId) {
+                $moduleId = strtoupper(\Illuminate\Support\Str::uuid()->toString());
+                DB::insert("
+                    INSERT INTO ODAF.APP_MODULE (OBJECT_ID, APPLICATION_ID, OBJECT_CODE, OBJECT_NAME, DISPLAY_ORDER, STATUS)
+                    VALUES (HEXTORAW(?), HEXTORAW(?), 'MOD_CUSTOM_PAGES', 'Custom Pages', 80, 'PUBLISHED')
+                ", [$moduleId, $this->appId]);
+            }
+
+            // Create Menu Entry
+            $menuId = strtoupper(\Illuminate\Support\Str::uuid()->toString());
+            $menuCode = 'MNU_' . $pageCode;
+            
+            $maxOrderRow = DB::selectOne("SELECT MAX(DISPLAY_ORDER) AS MAX_ORD FROM ODAF.APP_MENU WHERE MODULE_ID = HEXTORAW(?)", [$moduleId]);
+            $order = (($this->normalizeRow($maxOrderRow)['MAX_ORD'] ?? 0) + 10);
+
+            DB::insert("
+                INSERT INTO ODAF.APP_MENU (OBJECT_ID, MODULE_ID, OBJECT_CODE, OBJECT_NAME, PAGE_ID, ICON, DISPLAY_ORDER, VISIBLE_FLAG, STATUS)
+                VALUES (HEXTORAW(?), HEXTORAW(?), ?, ?, HEXTORAW(?), 'sparkles', ?, 1, 'PUBLISHED')
+            ", [$menuId, $moduleId, $menuCode, $this->customPageName, $pageId, $order]);
+
+            DB::commit();
+
+            \Artisan::call('odaf:compile', ['application' => $appCode, '--activate' => true]);
+
+            $this->showCustomPageModal = false;
+            session()->flash('success', "Custom Page '{$this->customPageName}' berhasil dibuat.");
+            $this->redirect("/studio/designer/custom-page/{$pageId}", navigate: true);
+
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            session()->flash('error', 'Gagal membuat Custom Page: ' . $e->getMessage());
         }
     }
 
@@ -281,7 +508,7 @@ final class ApplicationOverview extends Component
                 (SELECT COUNT(*) FROM UI_FIELD F WHERE F.PAGE_ID = P.OBJECT_ID) AS FIELD_COUNT
             FROM UI_PAGE P
             LEFT JOIN DS_DATASET D ON P.DATASET_ID = D.OBJECT_ID
-            WHERE P.APPLICATION_ID = HEXTORAW(?)
+            WHERE P.APPLICATION_ID = HEXTORAW(?) AND P.PAGE_TYPE != 'CUSTOM'
             ORDER BY P.OBJECT_CODE
         ", [$this->appId]);
 

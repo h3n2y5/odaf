@@ -7,6 +7,7 @@ namespace App\Livewire\Studio;
 use App\Support\StudioAccess;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
+use Livewire\WithFileUploads;
 use Odaf\Studio\ColumnMapper;
 use Odaf\Studio\TableDataManager;
 use Odaf\Studio\TableIntrospector;
@@ -19,6 +20,8 @@ use Throwable;
 #[Layout('layouts.odaf')]
 final class StudioForm extends Component
 {
+    use WithFileUploads;
+
     public string $table = '';
 
     public ?string $key = null;
@@ -62,9 +65,25 @@ final class StudioForm extends Component
         }
     }
 
-    public function save(StudioAccess $access, TableDataManager $manager): void
+    public function save(StudioAccess $access, TableDataManager $manager, TableIntrospector $introspector): void
     {
         $access->ensureAdmin();
+
+        $rules = [];
+        $messages = [];
+        $schema = $introspector->schema($this->table);
+        foreach ($schema['columns'] as $name => $meta) {
+            if (isset($meta['widget']) && $meta['widget'] === 'photo') {
+                if ($this->form[$name] instanceof \Illuminate\Http\UploadedFile) {
+                    $rules["form.$name"] = 'image|max:10240';
+                    $messages["form.$name.image"] = "File " . ColumnMapper::humanize($name) . " harus berupa gambar.";
+                    $messages["form.$name.max"] = "Ukuran file " . ColumnMapper::humanize($name) . " maksimal 10MB.";
+                }
+            }
+        }
+        if (!empty($rules)) {
+            $this->validate($rules, $messages);
+        }
 
         $payload = $this->editablePayload($access, $manager);
 
@@ -173,6 +192,15 @@ final class StudioForm extends Component
                         continue;
                     }
                     $payload[$name] = \Illuminate\Support\Facades\Hash::make($this->form[$name]);
+                } elseif (isset($meta['widget']) && in_array($meta['widget'], ['photo', 'document'])) {
+                    $val = $this->form[$name];
+                    if ($val instanceof \Illuminate\Http\UploadedFile) {
+                        $ext = strtolower($val->getClientOriginalExtension() ?: 'tmp');
+                        $path = "{$ext}/studio/" . strtolower($this->table);
+                        $payload[$name] = $val->store($path, 'public');
+                    } else {
+                        $payload[$name] = $val;
+                    }
                 } else {
                     $payload[$name] = $this->form[$name];
                 }

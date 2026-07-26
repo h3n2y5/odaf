@@ -4,19 +4,76 @@
       <div @if($hasSplit) x-data="hdSplit(@js($pageCode))" @endif>
         {{-- ===== PANE ATAS: HEADER ===== --}}
         <div @if($hasSplit) x-ref="topPane" :style="`height:${topH}px`" class="overflow-auto pr-1 border-b border-slate-200" @endif>
-        <div class="max-w-3xl">
+        <div class="max-w-3xl relative">
+            {{-- ===== QR Code Badge (edit mode only) ===== --}}
+            @if (! empty($qrCodes) && $isEdit)
+                <div class="absolute -top-1 -right-1 z-10 flex flex-col gap-2 print:static print:float-right print:mr-0 print:mt-0"
+                     id="odaf-qr-section">
+                    @foreach ($qrCodes as $qr)
+                        @php
+                            $pos = $qr['config']['position'] ?? 'TOP_RIGHT';
+                            $size = $qr['config']['sizePx'] ?? 150;
+                            $showOnPrint = $qr['config']['showOnPrint'] ?? true;
+                        @endphp
+                        <div class="bg-white rounded-lg shadow-lg border border-slate-200 p-2 group cursor-pointer
+                                    hover:shadow-xl transition-shadow duration-200
+                                    {{ ! $showOnPrint ? 'print:hidden' : '' }}"
+                             title="{{ $qr['config']['name'] ?? 'QR Code' }}"
+                             x-data="{ showDetail: false }" @click="showDetail = !showDetail">
+                            <div class="flex flex-col items-center gap-1">
+                                {!! $qr['svg'] !!}
+                                <span class="text-[9px] text-slate-400 font-mono truncate max-w-[{{ $size }}px] print:hidden">
+                                    {{ $qr['config']['name'] ?? 'QR' }}
+                                </span>
+                            </div>
+                            {{-- Expanded info on click --}}
+                            <div x-show="showDetail" x-transition class="mt-2 text-xs text-slate-500 space-y-1 print:hidden">
+                                @if ($qr['config']['targetPageCode'] ?? null)
+                                    <div class="flex items-center gap-1">
+                                        <svg class="w-3 h-3 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"></path></svg>
+                                        <span>Target: {{ $qr['config']['targetPageCode'] }}</span>
+                                    </div>
+                                @endif
+                                @if ($qr['config']['targetAction'] ?? null)
+                                    <div class="flex items-center gap-1">
+                                        <svg class="w-3 h-3 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                                        <span>Aksi: {{ $qr['config']['targetAction'] }}</span>
+                                    </div>
+                                @endif
+                                <a href="{{ $qr['url'] }}" target="_blank"
+                                   class="inline-flex items-center gap-1 text-indigo-500 hover:text-indigo-700 mt-1"
+                                   @click.stop>
+                                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+                                    Buka link
+                                </a>
+                            </div>
+                        </div>
+                    @endforeach
+                </div>
+            @endif
             <div class="flex items-center justify-between mb-4">
                 <h1 class="text-xl font-semibold text-slate-800 flex items-center gap-2">
                     {{ $isEdit ? 'Ubah' : 'Baru' }} &mdash; {{ $vm['title'] }}
-                    @if ($isAdmin ?? false)
-                        <a href="{{ route('studio.grid', ['table' => $tableName]) }}" target="_blank"
-                           class="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-indigo-100 hover:text-indigo-700" title="Buka Data Manager (Admin)">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"></path>
-                            </svg>
-                            {{ $tableName }}
-                        </a>
-                    @endif
+                    <div class="flex items-center gap-2">
+                        @if ($isEdit && !empty($rptTemplates))
+                            <a href="{{ route('odaf.print', ['appCode' => $appCode, 'pageCode' => $pageCode, 'key' => $key]) }}" target="_blank"
+                               class="inline-flex items-center gap-1 rounded bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100 border border-indigo-200" title="Cetak Dokumen">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path>
+                                </svg>
+                                Cetak
+                            </a>
+                        @endif
+                        @if ($isAdmin ?? false)
+                            <a href="{{ route('studio.grid', ['table' => $tableName]) }}" target="_blank"
+                               class="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-indigo-100 hover:text-indigo-700" title="Buka Data Manager (Admin)">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"></path>
+                                </svg>
+                                Data
+                            </a>
+                        @endif
+                    </div>
                 </h1>
                 <a href="{{ route('odaf.grid', ['appCode' => $appCode, 'pageCode' => $pageCode]) }}"
                    wire:navigate class="text-sm text-slate-500 hover:underline">&larr; Kembali</a>
@@ -74,6 +131,50 @@
                                        @focus="onFocus" @input="onInput($event)" @blur="onBlur"
                                        @if ($field['readonly']) readonly @endif
                                        class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-right focus:border-indigo-500 focus:ring-indigo-500">
+                            @elseif ($field['widget'] === 'photo')
+                                <div class="space-y-3">
+                                    @if (($this->form[$field['column']] ?? null) instanceof \Livewire\Features\SupportFileUploads\TemporaryUploadedFile)
+                                        <img src="{{ $this->form[$field['column']]->temporaryUrl() }}" class="h-24 w-24 object-cover rounded-md border border-slate-200 shadow-sm">
+                                    @elseif (!empty($this->form[$field['column']]))
+                                        <button type="button" 
+                                                @click="$dispatch('open-pdf-viewer', { id: 'pdfViewerModal', url: '{{ asset('storage/' . $this->form[$field['column']]) }}' })" 
+                                                class="relative group block rounded-md border border-slate-200 shadow-sm overflow-hidden focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                                title="Lihat Gambar Aman">
+                                            <img src="{{ asset('storage/' . $this->form[$field['column']]) }}" class="h-24 w-24 object-cover pointer-events-none select-none">
+                                            <div class="absolute inset-0 bg-slate-900 bg-opacity-0 group-hover:bg-opacity-30 transition-all flex items-center justify-center">
+                                                <svg class="w-6 h-6 text-white opacity-0 group-hover:opacity-100" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
+                                            </div>
+                                        </button>
+                                    @endif
+                                    <input type="file" accept="image/*" {{ $wm }}="{{ $model }}" @if ($field['readonly']) disabled @endif
+                                           class="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 focus:outline-none">
+                                </div>
+                            @elseif ($field['widget'] === 'document')
+                                <div class="space-y-3">
+                                    @if (!empty($this->form[$field['column']]) && !(($this->form[$field['column']] ?? null) instanceof \Illuminate\Http\UploadedFile))
+                                        @php
+                                            $docUrl = asset('storage/' . $this->form[$field['column']]);
+                                            $isPdf = strtolower(pathinfo($this->form[$field['column']], PATHINFO_EXTENSION)) === 'pdf';
+                                        @endphp
+                                        <div>
+                                            @if ($isPdf)
+                                                <button type="button" 
+                                                        @click="$dispatch('open-pdf-viewer', { id: 'pdfViewerModal', url: '{{ $docUrl }}' })"
+                                                        class="inline-flex items-center text-sm text-indigo-600 hover:text-indigo-800 font-medium bg-indigo-50 px-3 py-1.5 rounded-md transition-colors">
+                                                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
+                                                    Lihat Dokumen (Secure)
+                                                </button>
+                                            @else
+                                                <a href="{{ $docUrl }}" download class="inline-flex items-center text-sm text-indigo-600 hover:text-indigo-800 font-medium bg-indigo-50 px-3 py-1.5 rounded-md transition-colors">
+                                                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                                                    Download Dokumen
+                                                </a>
+                                            @endif
+                                        </div>
+                                    @endif
+                                    <input type="file" {{ $wm }}="{{ $model }}" @if ($field['readonly']) disabled @endif
+                                           class="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 focus:outline-none">
+                                </div>
                             @else
                                 <input type="{{ $field['widget'] }}" {{ $wm }}="{{ $model }}"
                                        @if ($field['readonly']) readonly @endif
@@ -230,6 +331,19 @@
             init() {
                 // Tampilan awal diformat sesuai locale client.
                 this.display = window.odafNum(this.raw, this.opts.decimals, this.opts.sep);
+
+                // Sinkronisasi dari backend (mis. auto-refresh formula kalkulasi)
+                this.$watch('$wire.' + this.opts.model, (value) => {
+                    const strVal = (value === null || value === undefined) ? '' : String(value);
+                    if (this.raw !== strVal) {
+                        this.raw = strVal;
+                        // Hanya update tampilan jika elemen ini sedang tidak difokuskan 
+                        // (agar tidak mengganggu user yang sedang mengetik)
+                        if (document.activeElement !== this.$el) {
+                            this.display = window.odafNum(this.raw, this.opts.decimals, this.opts.sep);
+                        }
+                    }
+                });
             },
 
             // Saat fokus: tampilkan nilai tanpa pemisah ribuan, desimal sesuai locale.
@@ -246,11 +360,14 @@
                 this.display = e.target.value;
                 // Parse sesuai locale -> angka kanonik untuk disimpan.
                 this.raw = window.odafParseNum(e.target.value);
+                // Set locally (deferred) tanpa request AJAX instan
                 this.$wire.set(this.opts.model, this.raw === '' ? null : this.raw, false);
             },
 
             onBlur() {
                 this.display = window.odafNum(this.raw, this.opts.decimals, this.opts.sep);
+                // Commit changes to the server on blur to trigger evaluateCalculations
+                this.$wire.$commit();
             },
         }));
 
@@ -302,4 +419,6 @@
         }));
     </script>
     @endscript
+
+    <x-secure-pdf-viewer id="pdfViewerModal" />
 </div>

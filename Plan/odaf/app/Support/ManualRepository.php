@@ -545,6 +545,25 @@ Perintah ini akan:
 4. Melakukan *Compile & Activate* secara otomatis agar aplikasi langsung dapat dipakai.
 MD];
 
+        $s[] = ['title' => 'Deploy Android APK (Native PWA)', 'body' => <<< 'MD'
+Aplikasi ODAF mendukung instalasi Android secara *native* melalui teknologi **Progressive Web App (PWA)**. PWA sangat ringan (hanya beberapa Kilobyte) dan berjalan *standalone* layaknya aplikasi asli tanpa kolom URL.
+
+### Opsi 1: Instalasi Langsung (Sangat Ringan)
+Cara ini adalah yang paling disarankan karena efisien, cepat, dan tidak memakan memori HP.
+1. Buka URL aplikasi Anda (misal: `/app/NEXUS`) menggunakan browser Chrome di HP Android.
+2. Tunggu beberapa detik, akan muncul notifikasi *popup* **"Add to Homescreen"** atau **"Install App"** di bagian bawah layar.
+3. Jika popup tidak muncul, klik tombol menu (titik tiga) di sudut kanan atas Chrome, lalu pilih **Install app** (atau Tambahkan ke Layar Utama).
+4. Aplikasi akan otomatis terinstal dan muncul di laci aplikasi (App Drawer) atau layar utama HP Anda.
+
+### Opsi 2: Konversi menjadi File .APK (Untuk Play Store)
+Jika Anda diwajibkan memiliki file mentah `.apk` (misalnya untuk didistribusikan via sistem internal perusahaan atau diunggah ke Google Play Store):
+1. Buka situs resmi **[PWABuilder.com](https://www.pwabuilder.com/)** buatan Microsoft.
+2. Masukkan URL aplikasi Anda pada kolom yang disediakan, lalu klik **Start**.
+3. PWABuilder akan secara otomatis mendeteksi konfigurasi *Manifest* dan *Service Worker* dari aplikasi ODAF.
+4. Setelah skor dihitung (PWA ODAF sudah teroptimasi), klik tombol **Package for Android**.
+5. Sistem akan mengunduh paket yang berisi file APK mentah (terbungkus Trusted Web Activity) yang sudah langsung siap di-*publish* atau di-*install*.
+MD];
+
         // __SECTIONS__
         return $s;
     }

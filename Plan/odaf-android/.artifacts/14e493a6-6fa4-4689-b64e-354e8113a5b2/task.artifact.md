@@ -1,0 +1,5 @@
+- [x] Add `ic_launcher_background` to `colors.xml`
+- [x] Create `res/drawable/ic_launcher_foreground.xml`
+- [x] Create `res/mipmap-anydpi-v26/ic_launcher.xml`
+- [x] Create `res/mipmap-anydpi-v26/ic_launcher_round.xml`
+- [x] Verify build with `./gradlew :app:processDebugResources`

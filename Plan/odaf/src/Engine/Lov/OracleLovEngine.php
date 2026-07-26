@@ -191,35 +191,36 @@ final class OracleLovEngine implements LovEngineInterface
      *
      * @param  array<string, mixed>  $params  (kunci UPPER_CASE)
      * @return array{0: string, 1: array<int, mixed>}|null null bila ada token
+     * @return array{0: string, 1: array<string, mixed>}|null null bila ada token
      *                                                     yang parameternya belum tersedia (LOV dependen belum siap)
      */
     private function applyTemplate(string $sql, array $params): ?array
     {
         $bindings = [];
         $missing = false;
+        $counter = 0;
 
         $compiled = preg_replace_callback(
             '/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/',
-            function (array $m) use (&$bindings, &$missing, $params): string {
+            function (array $m) use (&$bindings, &$missing, $params, &$counter): string {
                 $key = strtoupper($m[1]);
                 $value = $params[$key] ?? null;
                 if ($value === null || $value === '') {
                     $missing = true;
-
                     return 'NULL';
                 }
-                $bindings[] = $value;
-
-                return '?';
+                $bindKey = 'p' . $counter++;
+                $bindings[$bindKey] = $value;
+                return ':' . $bindKey;
             },
-            $sql,
+            $sql
         );
 
         if ($missing) {
             return null;
         }
 
-        return [(string) $compiled, $bindings];
+        return [$compiled, $bindings];
     }
 
     /**

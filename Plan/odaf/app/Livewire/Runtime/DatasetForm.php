@@ -7,9 +7,11 @@ namespace App\Livewire\Runtime;
 use App\Support\RuntimeSession;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
+use Livewire\WithFileUploads;
 use Odaf\Engine\Audit\Contracts\AuditEngineInterface;
 use Odaf\Engine\Dataset\Contracts\DatasetEngineInterface;
 use Odaf\Engine\Lov\Contracts\LovEngineInterface;
+use Odaf\Engine\QrCode\Contracts\QrCodeServiceInterface;
 use Odaf\Engine\Render\Contracts\RendererInterface;
 use Odaf\Engine\Security\Contracts\SecurityEngineInterface;
 use Odaf\Engine\Validation\Contracts\ValidationEngineInterface;
@@ -26,6 +28,8 @@ use Odaf\Engine\Workflow\Contracts\WorkflowException;
 #[Layout('layouts.odaf')]
 final class DatasetForm extends Component
 {
+    use WithFileUploads;
+
     /** Zona waktu lokal untuk nilai default tanggal (SYSDATE) pada field buatan. */
     private const LOCAL_TZ = 'Asia/Jakarta';
 
@@ -129,6 +133,22 @@ final class DatasetForm extends Component
         }
 
         // 2. Validate (metadata-driven).
+        $rules = [];
+        $messages = [];
+        foreach ($page['fields'] as $f) {
+            $col = strtoupper((string) $f['column']);
+            if (isset($f['fieldType']) && strtoupper((string) $f['fieldType']) === 'PHOTO') {
+                if (($this->form[$col] ?? null) instanceof \Illuminate\Http\UploadedFile) {
+                    $rules["form.$col"] = 'image|max:10240';
+                    $messages["form.$col.image"] = "File " . ($f['label'] ?? $col) . " harus berupa gambar.";
+                    $messages["form.$col.max"] = "Ukuran file " . ($f['label'] ?? $col) . " maksimal 10MB.";
+                }
+            }
+        }
+        if (!empty($rules)) {
+            $this->validate($rules, $messages);
+        }
+
         $payload = $this->writablePayload($page['fields']);
         // Kolom label pendamping LOV (mis. CUSTGROUPDESC) ikut disimpan walau
         // field-nya readonly — nilainya berasal dari sinkronisasi label saat render.
@@ -253,8 +273,76 @@ final class DatasetForm extends Component
 
                 break;
             }
+            
+            $this->evaluateCalculations($page['fields']);
         } catch (\Throwable) {
             // Suppress error — ini optimization, tidak boleh menggagalkan update.
+        }
+    }
+
+    /**
+     * Evaluasi formula kalkulasi matematika pada runtime.
+     * Menggunakan regex sanitasi ketat untuk menghindari eksekusi script arbitrary.
+     */
+    private function evaluateCalculations(array $fields): void
+    {
+        $hasChanges = false;
+        
+        foreach ($fields as $field) {
+            $config = is_array($field['config'] ?? null) ? $field['config'] : [];
+            $calc = $config['calculation'] ?? null;
+            
+            if ($calc === null || trim((string) $calc) === '') {
+                continue;
+            }
+            
+            $colName = strtoupper((string) $field['column']);
+            $formula = strtoupper((string) $calc);
+            
+            // Resolusi token variabel [NAMA_KOLOM] dengan nilainya
+            $formula = preg_replace_callback('/\[([A-Z0-9_]+)\]/', function($m) {
+                // Kosongkan koma (pemisah ribuan) jika ada sisa
+                $raw = $this->form[$m[1]] ?? 0;
+                if (is_string($raw)) {
+                    $raw = str_replace(',', '', $raw);
+                }
+                return (float) (is_numeric($raw) ? $raw : 0);
+            }, $formula);
+            
+            // Sanitasi mutlak: hanya izinkan angka, desimal, dan operasi matematika (+, -, *, /)
+            $clean = preg_replace('/[^0-9\.\+\-\*\/\(\)\s]/', '', $formula);
+            
+            if (empty(trim($clean))) {
+                continue;
+            }
+            
+            try {
+                // @codingStandardsIgnoreStart
+                $result = eval("return $clean;");
+                // @codingStandardsIgnoreEnd
+                
+                if (is_numeric($result)) {
+                    $decimals = $config['decimals'] ?? null;
+                    if ($decimals !== null && is_numeric($decimals)) {
+                        $result = round((float) $result, (int) $decimals);
+                    }
+                    
+                    if (($this->form[$colName] ?? null) !== $result) {
+                        $this->form[$colName] = $result;
+                        $hasChanges = true;
+                    }
+                }
+            } catch (\Throwable $e) {
+                // Abaikan kesalahan evaluasi (mis. divide by zero)
+            }
+        }
+        
+        // Re-evaluasi 1 level kedalaman untuk mendukung kalkulasi berantai sederhana (A -> B -> C)
+        static $depth = 0;
+        if ($hasChanges && $depth < 1) {
+            $depth++;
+            $this->evaluateCalculations($fields);
+            $depth--;
         }
     }
 
@@ -358,12 +446,20 @@ final class DatasetForm extends Component
         $paramColumns = [];
         foreach ($page['fields'] as $f) {
             $lid = $f['lovId'] ?? null;
-            if ($lid === null) {
-                continue;
+            if ($lid !== null) {
+                $def = $kernel->lov($package->applicationId(), (string) $lid);
+                $src = $def['sourceQuery'] ?? null;
+                if ($src !== null && preg_match_all('/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/', (string) $src, $m) > 0) {
+                    foreach ($m[1] as $tok) {
+                        $paramColumns[strtoupper($tok)] = true;
+                    }
+                }
             }
-            $def = $kernel->lov($package->applicationId(), (string) $lid);
-            $src = $def['sourceQuery'] ?? null;
-            if ($src !== null && preg_match_all('/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/', (string) $src, $m) > 0) {
+            
+            // Tangkap juga variabel yang digunakan dalam perhitungan matematika
+            $config = is_array($f['config'] ?? null) ? $f['config'] : [];
+            $calc = $config['calculation'] ?? null;
+            if ($calc !== null && preg_match_all('/\[([A-Za-z0-9_]+)\]/', (string) $calc, $m) > 0) {
                 foreach ($m[1] as $tok) {
                     $paramColumns[strtoupper($tok)] = true;
                 }
@@ -419,6 +515,30 @@ final class DatasetForm extends Component
             }));
         }
 
+        // QR Code: generate dari QR_CONFIG terkompilasi (hanya saat edit).
+        $qrCodes = [];
+        if ($this->isEdit && $this->key !== null) {
+            $qrConfigs = $page['qrConfigs'] ?? [];
+            if (! empty($qrConfigs)) {
+                try {
+                    $qrService = app(QrCodeServiceInterface::class);
+                    foreach ($qrConfigs as $qrConfig) {
+                        $showOnForm = (bool) ($qrConfig['showOnForm'] ?? true);
+                        if (! $showOnForm) {
+                            continue;
+                        }
+                        $qrData = $qrService->buildFromConfig($qrConfig, (string) $this->key, $this->form);
+                        if ($qrData !== null) {
+                            $qrCodes[] = $qrData;
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    // QR Code generation failure should not break form rendering.
+                    logger()->warning('ODAF QR Code generation failed', ['error' => $e->getMessage()]);
+                }
+            }
+        }
+
         return view('livewire.runtime.dataset-form', [
             'nav' => $session->navItems($this->appCode, $package->applicationId()),
             'appCode' => $this->appCode,
@@ -429,6 +549,8 @@ final class DatasetForm extends Component
             'canSave' => $canSave,
             'isAdmin' => $isAdmin,
             'tableName' => $ds['sourceObject'] ?? '',
+            'qrCodes' => $qrCodes,
+            'rptTemplates' => $page['rptTemplates'] ?? [],
         ]);
     }
 
@@ -445,6 +567,13 @@ final class DatasetForm extends Component
             }
             $col = strtoupper((string) $field['column']);
             $val = $this->form[$col] ?? null;
+
+            if ($val instanceof \Illuminate\Http\UploadedFile) {
+                $ext = strtolower($val->getClientOriginalExtension() ?: 'tmp');
+                // Path: ext / aplikasi / menu
+                $path = "{$ext}/" . strtolower($this->appCode) . "/" . strtolower($this->pageCode);
+                $val = $val->store($path, 'public');
+            }
 
             // CHECKBOX disimpan sebagai 1/0 ke kolom NUMBER.
             if (strtoupper((string) ($field['fieldType'] ?? '')) === 'CHECKBOX') {

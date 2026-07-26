@@ -332,11 +332,38 @@ final class DatasetGrid extends Component
         $ds = $kernel->dataset($package->applicationId(), $page['datasetId']);
 
         $lovLabels = [];
+        $gridRows = $result->rows();
+        
         foreach ($columns as $col) {
             $lovId = ($col['lovId'] ?? '') !== '' ? (string) $col['lovId'] : null;
             if ($lovId !== null) {
-                foreach ($lov->options($context, $lovId) as $opt) {
-                    $lovLabels[strtoupper((string) $col['column'])][$opt['value']] = $opt['label'];
+                $colName = strtoupper((string) $col['column']);
+                $lovLabels[$colName] = [];
+                
+                // Coba ambil semua opsi (berhasil untuk LOV statis/independen)
+                $opts = $lov->options($context, $lovId);
+                if ($opts !== []) {
+                    foreach ($opts as $opt) {
+                        $lovLabels[$colName][$opt['value']] = $opt['label'];
+                    }
+                } else {
+                    // Jika gagal (kemungkinan LOV dependen yang butuh parameter row),
+                    // resolve label per nilai unik yang muncul di halaman grid ini.
+                    foreach ($gridRows as $row) {
+                        $val = (string) ($row[$colName] ?? '');
+                        if ($val !== '' && !isset($lovLabels[$colName][$val])) {
+                            // Siapkan parameter dari baris saat ini
+                            $params = [];
+                            foreach ($row as $k => $v) {
+                                $params[strtoupper((string) $k)] = $v;
+                            }
+                            
+                            $label = $lov->label($context, $lovId, $val, $params);
+                            if ($label !== null) {
+                                $lovLabels[$colName][$val] = $label;
+                            }
+                        }
+                    }
                 }
             }
         }

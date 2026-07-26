@@ -53,6 +53,8 @@ Route::middleware('auth')->group(function (): void {
     // Manual pengguna (dapat dibaca semua user; edit khusus superuser).
     Route::get('/manual', ManualPage::class)->name('manual');
 
+    Route::get('/scanner', \App\Livewire\Runtime\QrScanner::class)->name('odaf.scanner');
+
     // Shell aplikasi (menu dari package).
     Route::get('/app/{appCode}', AppHome::class)->name('odaf.home');
 
@@ -99,4 +101,112 @@ Route::get('/health/db', function () {
         ], 500);
     }
 });
+
+Route::get('/debug-page', function () {
+    $pages = \Illuminate\Support\Facades\DB::select("
+        SELECT p.OBJECT_CODE, p.PAGE_TYPE, RAWTOHEX(p.DATASET_ID) AS DATASET_ID, d.OBJECT_CODE AS DS_CODE, d.SOURCE_OBJECT
+        FROM ODAF.UI_PAGE p
+        LEFT JOIN ODAF.DS_DATASET d ON p.DATASET_ID = d.OBJECT_ID
+        WHERE p.APPLICATION_ID = HEXTORAW('F8057A478EBE23C28E3C0FAF49267558')
+    ");
+    return response()->json($pages);
+});
+
+Route::get('/debug-cache', function () {
+    $graph = \Illuminate\Support\Facades\Cache::get('odaf.runtime.nexus');
+    if (!$graph) {
+        $graph = \Illuminate\Support\Facades\Cache::get('odaf.runtime.NEXUS');
+    }
+    
+    // In Odaf\Runtime\UnifiedRuntimeKernel, the cache key is 'odaf.app.' . $appId
+    // Let's just find the exact cache key by inspecting Kernel.
+    $appCodeRow = \Illuminate\Support\Facades\DB::selectOne("SELECT RAWTOHEX(OBJECT_ID) as id FROM ODAF.APP_APPLICATION WHERE UPPER(OBJECT_CODE) = 'NEXUS'");
+    if (!$appCodeRow) return 'App not found';
+    
+    $cacheKey = 'odaf.graph.' . strtolower($appCodeRow->id);
+    $cacheKey2 = 'odaf.graph.' . strtoupper($appCodeRow->id);
+    
+    $data1 = \Illuminate\Support\Facades\Cache::get($cacheKey);
+    $data2 = \Illuminate\Support\Facades\Cache::get($cacheKey2);
+    
+    return response()->json([
+        'key1' => $cacheKey,
+        'has1' => $data1 !== null,
+        'ds1' => $data1 ? collect($data1['datasets'])->where('code', 'DS_TRX_SALES')->first() : null,
+        'key2' => $cacheKey2,
+        'has2' => $data2 !== null,
+        'ds2' => $data2 ? collect($data2['datasets'])->where('code', 'DS_TRX_SALES')->first() : null,
+        'ds_all' => $data1 ? collect($data1['datasets'])->pluck('sourceObject') : null
+    ]);
+});
+
+Route::get('/test-calc', function () {
+    $form = new \App\Livewire\Runtime\DatasetForm();
+    $form->form = [
+        'HARGA_JUAL' => 200,
+        'PAJAK_PERSEN' => 10,
+        'HARGA_AKHIR' => null
+    ];
+    
+    $json = \Illuminate\Support\Facades\DB::selectOne("SELECT PAYLOAD FROM ODAF.RT_PACKAGE WHERE ACTIVE_FLAG = 1")->payload;
+    if (is_resource($json)) $json = stream_get_contents($json);
+    $data = json_decode($json, true);
+    $page = collect($data['pages'])->where('code', 'TRX_SALES')->first();
+    
+    // Simulate updated
+    $form->appCode = 'Nexus';
+    $form->pageCode = 'TRX_SALES';
+    $form->updated('form.PAJAK_PERSEN', 10);
+    
+    return response()->json($form->form);
+});
+
+Route::get('/manifest.json', function () {
+    return response()->json([
+        'name' => 'ODAF Runtime',
+        'short_name' => 'ODAF',
+        'start_url' => '/',
+        'display' => 'standalone',
+        'background_color' => '#ffffff',
+        'theme_color' => '#4f46e5',
+        'icons' => [
+            [
+                'src' => '/icon-192.png',
+                'sizes' => '192x192',
+                'type' => 'image/png'
+            ],
+            [
+                'src' => '/icon-512.png',
+                'sizes' => '512x512',
+                'type' => 'image/png'
+            ]
+        ]
+    ]);
+})->name('pwa.manifest');
+
+Route::get('/app/{appCode}/manifest.json', function (string $appCode) {
+    $app = \Illuminate\Support\Facades\DB::selectOne("SELECT OBJECT_NAME FROM ODAF.APP_APPLICATION WHERE OBJECT_CODE = ?", [$appCode]);
+    $name = $app ? $app->object_name : 'ODAF App';
+
+    return response()->json([
+        'name' => $name,
+        'short_name' => substr($name, 0, 12),
+        'start_url' => "/app/{$appCode}",
+        'display' => 'standalone',
+        'background_color' => '#ffffff',
+        'theme_color' => '#4f46e5',
+        'icons' => [
+            [
+                'src' => '/icon-192.png',
+                'sizes' => '192x192',
+                'type' => 'image/png'
+            ],
+            [
+                'src' => '/icon-512.png',
+                'sizes' => '512x512',
+                'type' => 'image/png'
+            ]
+        ]
+    ]);
+})->name('pwa.app.manifest');
 
